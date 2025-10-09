@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 # Custom modules (your own project files)
 from db_operation import insert_or_update_users_bulk  # Handles DB insert/update logic
-from event_publisher import publish_event             # Publishes event to event mesh or API
+# from event_publisher import publish_event             # Publishes event to event mesh or API
 
 # Configure a logger for this module
 logger = logging.getLogger(__name__)
