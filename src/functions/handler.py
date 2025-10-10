@@ -1,68 +1,62 @@
-import os
 import json
 import logging
-from db_operation import insert_or_update_users_bulk
+from lib import ce
 
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 def main(event, context=None):
     """
-    Kyma handler to process POST JSON payload.
-    Accepts JSON array or single object from API tools or CloudEvents.
+    Handles both CloudEvent (from Kyma) and direct JSON input (from Bruno/Postman).
     """
-
     try:
-        # ✅ Handle CloudEvent type (Kyma wraps incoming JSON inside lib.ce.Event)
-        if hasattr(event, "data"):
-            payload = event.data
+        logger.info("Incoming event type: %s", type(event))
+
+        # ✅ Case 1: Event is a CloudEvent (from Kyma)
+        if isinstance(event, ce.Event):
+            logger.info("Processing CloudEvent...")
+            data = event.Data() if hasattr(event, "Data") else None
+
+            if data is None:
+                raise ValueError("CloudEvent has no data field")
+
+        # ✅ Case 2: Event is a dict (from Bruno or local test)
         elif isinstance(event, dict):
-            payload = event.get("body") or event.get("data") or event
+            logger.info("Processing direct JSON dictionary...")
+            data = event
+
+        # ✅ Case 3: Event is a raw JSON string (from local invoke)
+        elif isinstance(event, str):
+            logger.info("Processing JSON string input...")
+            data = json.loads(event)
+
+        # ❌ Unknown input type
         else:
-            return {
-                "statusCode": 400,
-                "body": json.dumps({"message": f"Unsupported event type: {type(event)}"})
-            }
+            raise TypeError(f"Unsupported event type: {type(event)}")
 
-        # Parse if string
-        if isinstance(payload, str):
-            payload = json.loads(payload)
+        # ✅ Now process data safely
+        if not isinstance(data, list):
+            raise ValueError("Payload must be a JSON array of users")
 
-        # Ensure list format
-        if not isinstance(payload, list):
-            payload = [payload]
-
-        # Filter only valid userIDs starting with 'P'
-        valid_users = [u for u in payload if str(u.get("userID", "")).startswith("P")]
-        skipped_users = [u for u in payload if not str(u.get("userID", "")).startswith("P")]
-
-        if skipped_users:
-            logger.warning(f"Skipped users: {[u.get('userID') for u in skipped_users]}")
-
-        if not valid_users:
-            return {
-                "statusCode": 400,
-                "body": json.dumps({"message": "No valid users to process"})
-            }
-
-        # Call DB operation
-        result = insert_or_update_users_bulk(valid_users)
+        results = []
+        for user in data:
+            user_id = user.get("userID")
+            status = user.get("status")
+            logger.info(f"Processing user {user_id} with status {status}")
+            results.append({
+                "userID": user_id,
+                "processed": True,
+                "status": status
+            })
 
         return {
             "statusCode": 200,
-            "body": json.dumps({
-                "message": "Users processed successfully",
-                "inserted": result.get("inserted", 0),
-                "updated": result.get("updated", 0),
-                "skipped": len(skipped_users)
-            })
+            "body": json.dumps({"message": "Processed successfully", "results": results})
         }
 
     except Exception as e:
-        logger.exception("Error processing request")
+        logger.exception("Error processing event")
         return {
-            "statusCode": 500,
-            "body": json.dumps({"message": "Internal Server Error", "error": str(e)})
+            "statusCode": 400,
+            "body": json.dumps({"message": str(e)})
         }
