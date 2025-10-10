@@ -1,54 +1,54 @@
+import os
 import json
 import logging
-from lib import ce
 from db_operation import insert_or_update_users_bulk
 
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
 
 def main(event, context=None):
     try:
+        # 🔍 Step 1: Log event info (to understand structure)
         logger.info(f"Event type: {type(event)}")
+        logger.info(f"Event attributes: {dir(event)}")
+        logger.info(f"Event content: {getattr(event, '__dict__', {})}")
 
-        # Try to extract data from CloudEvent
-        data = None
-        if isinstance(event, ce.Event):
-            logger.info("CloudEvent detected")
+        # 🔍 Step 2: Try to extract payload
+        payload = None
 
-            # Try all known data attributes
-            for attr in ["data", "_Event__data", "_data"]:
-                if hasattr(event, attr):
-                    data = getattr(event, attr)
-                    if data:
-                        logger.info(f"Data found in {attr}")
-                        break
+        # Case 1: If CloudEvent object
+        if hasattr(event, "data"):
+            payload = getattr(event, "data", None)
+        elif hasattr(event, "_Event__data"):
+            payload = getattr(event, "_Event__data", None)
+        elif hasattr(event, "_data"):
+            payload = getattr(event, "_data", None)
 
-        # Fallback: treat as direct HTTP POST
-        if data is None:
-            logger.info("Falling back to HTTP request mode")
+        # Case 2: If payload still not found
+        if not payload:
             if isinstance(event, dict):
-                data = event.get("body") or event.get("data") or event
+                payload = event.get("body") or event.get("data") or event
             elif isinstance(event, str):
-                data = json.loads(event)
-            else:
-                raise TypeError(f"Unsupported event type: {type(event)}")
+                payload = json.loads(event)
 
-        # Parse if string
-        if isinstance(data, str):
-            data = json.loads(data)
+        # Case 3: Parse JSON string
+        if isinstance(payload, str):
+            payload = json.loads(payload)
 
-        # Ensure it's a list
-        if not isinstance(data, list):
-            data = [data]
+        # Ensure list
+        if not isinstance(payload, list):
+            payload = [payload]
 
         # Filter valid users
-        valid_users = [u for u in data if str(u.get("userID", "")).startswith("P")]
-        skipped_users = [u for u in data if not str(u.get("userID", "")).startswith("P")]
+        valid_users = [u for u in payload if str(u.get("userID", "")).startswith("P")]
+        skipped_users = [u for u in payload if not str(u.get("userID", "")).startswith("P")]
 
         if not valid_users:
             return {"statusCode": 400, "body": json.dumps({"message": "No valid users to process"})}
 
+        # Step 4: Insert/update in DB
         result = insert_or_update_users_bulk(valid_users)
+
         return {
             "statusCode": 200,
             "body": json.dumps({
@@ -60,5 +60,5 @@ def main(event, context=None):
         }
 
     except Exception as e:
-        logger.exception("Error in handler")
+        logger.exception("Error processing event")
         return {"statusCode": 400, "body": json.dumps({"message": str(e)})}
