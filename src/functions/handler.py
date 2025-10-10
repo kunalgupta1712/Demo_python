@@ -15,13 +15,7 @@ logger = logging.getLogger(__name__)
 def main(event: Any, context: Any = None) -> Dict[str, Union[int, str]]:
     """
     Kyma function handler for processing user data.
-    
-    Args:
-        event: Incoming event (CloudEvent object or dict)
-        context: Optional context (ignored here)
-
-    Returns:
-        Dict containing HTTP-style status code and JSON response body
+    Supports lib.ce.Event and plain dict payloads.
     """
 
     # ----------------------------
@@ -45,15 +39,19 @@ def main(event: Any, context: Any = None) -> Dict[str, Union[int, str]]:
     # ----------------------------
     users: Union[List[Dict[str, Any]], Dict[str, Any], None] = None
 
-    # CloudEvent object (Kyma runtime)
-    if hasattr(event, "data"):
-        users = event.data
-    # plain dict (e.g., for local testing / API tool)
-    elif isinstance(event, dict):
-        users = event.get("body") or event.get("data")
-    else:
-        logger.error(f"Unsupported event type: {type(event)}")
-        return {"statusCode": 400, "body": json.dumps({"message": "Unsupported event type"})}
+    try:
+        # CloudEvent (Kyma runtime)
+        if hasattr(event, "data"):
+            users = event.data
+        # plain dict (e.g., for local testing / API tool)
+        elif isinstance(event, dict):
+            users = event.get("body") or event.get("data")
+        else:
+            logger.error(f"Unsupported event type: {type(event)}")
+            return {"statusCode": 400, "body": json.dumps({"message": "Unsupported event type"})}
+    except Exception as e:
+        logger.exception("Error extracting payload")
+        return {"statusCode": 400, "body": json.dumps({"message": str(e)})}
 
     # ----------------------------
     # Step 3: Parse JSON if payload is string
@@ -83,30 +81,26 @@ def main(event: Any, context: Any = None) -> Dict[str, Union[int, str]]:
     # Step 5: Call db_operation to insert/update users
     # ----------------------------
     try:
-        # Using ThreadPoolExecutor for potential parallel tasks (event publishing, etc.)
+        # ThreadPoolExecutor for potential parallel tasks (future)
         with ThreadPoolExecutor(max_workers=1) as executor:
             future = executor.submit(insert_or_update_users_bulk, users)
             result = future.result()
 
-        success_msg = f"Successfully processed {result['inserted']} inserts and {result['updated']} updates."
+        success_msg = f"Processed {result['inserted']} inserts and {result['updated']} updates."
         logger.info(success_msg)
 
         return {
             "statusCode": 200,
-            "body": json.dumps(
-                {
-                    "message": success_msg,
-                    "inserted": result["inserted"],
-                    "updated": result["updated"],
-                }
-            ),
+            "body": json.dumps({
+                "message": success_msg,
+                "inserted": result["inserted"],
+                "updated": result["updated"]
+            }),
         }
 
     except Exception as e:
         logger.exception("Error processing users")
         return {
             "statusCode": 500,
-            "body": json.dumps(
-                {"message": "Error processing users", "error": str(e)}
-            ),
+            "body": json.dumps({"message": "Error processing users", "error": str(e)}),
         }
