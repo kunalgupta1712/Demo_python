@@ -5,7 +5,7 @@ from typing import Any, Dict, Union
 from concurrent.futures import ThreadPoolExecutor
 
 # Custom modules
-from db_operation import insert_or_update_users_bulk  # Handles DB insert/update logic
+from db_operation import insert_or_update_users_bulk
 
 # Kyma CloudEvent support
 try:
@@ -24,9 +24,7 @@ def main(event: Any, context: Any = None) -> Dict[str, Union[int, str]]:
     Supports lib.ce.Event and plain dict payloads.
     """
 
-    # ----------------------------
     # Step 1: Validate environment variables
-    # ----------------------------
     required_env_vars = [
         "HANA_SERVER_NODE",
         "HANA_PORT",
@@ -40,16 +38,12 @@ def main(event: Any, context: Any = None) -> Dict[str, Union[int, str]]:
         logger.error(error_msg)
         return {"statusCode": 500, "body": json.dumps({"message": error_msg})}
 
-    # ----------------------------
     # Step 2: Extract payload
-    # ----------------------------
     users: Union[Dict, list, None] = None
 
     try:
-        # CloudEvent object
         if Event is not None and isinstance(event, Event):
-            users = event.data
-        # Plain dict (for local testing / API tool)
+            users = event.get_data()  # <-- Use get_data() instead of .data
         elif isinstance(event, dict):
             users = event.get("body") or event.get("data")
         else:
@@ -59,9 +53,7 @@ def main(event: Any, context: Any = None) -> Dict[str, Union[int, str]]:
         logger.exception("Error extracting payload")
         return {"statusCode": 400, "body": json.dumps({"message": str(e)})}
 
-    # ----------------------------
     # Step 3: Parse JSON if payload is string
-    # ----------------------------
     if isinstance(users, str):
         try:
             users = json.loads(users)
@@ -69,9 +61,7 @@ def main(event: Any, context: Any = None) -> Dict[str, Union[int, str]]:
             logger.error("Invalid JSON in request body")
             return {"statusCode": 400, "body": json.dumps({"message": "Invalid JSON"})}
 
-    # ----------------------------
     # Step 4: Normalize to list
-    # ----------------------------
     if not isinstance(users, list):
         if users:
             logger.info("Received single user, converting to list")
@@ -83,9 +73,7 @@ def main(event: Any, context: Any = None) -> Dict[str, Union[int, str]]:
         logger.error("No user records provided")
         return {"statusCode": 400, "body": json.dumps({"message": "No user records provided"})}
 
-    # ----------------------------
     # Step 5: Call db_operation to insert/update users
-    # ----------------------------
     try:
         with ThreadPoolExecutor(max_workers=1) as executor:
             future = executor.submit(insert_or_update_users_bulk, users)
