@@ -1,97 +1,88 @@
 import os
 import json
 import logging
-from typing import Dict, Any, Union
-from concurrent.futures import ThreadPoolExecutor
+from typing import Dict, Any, Union, List
 
-# Custom modules (your own project files)
-from db_operation import insert_or_update_users_bulk  # Handles DB insert/update logic
-# from event_publisher import publish_event             # Publishes event to event mesh or API
+# Custom modules
+from db_operation import insert_or_update_users_bulk
 
-# Configure a logger for this module
+# Configure logger
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
 
 def main(event: Dict[str, Any]) -> Dict[str, Union[int, str]]:
     """
-    Main handler function for processing SuccessFactors/Fieldglass user data.
-
-    Args:
-        event: The event payload (as a dictionary) containing user data to process.
-
-    Returns:
-        A dictionary containing:
-          - statusCode (HTTP-style integer)
-          - body (JSON string with response message)
+    Main handler to accept user payload and pass it to DB operation.
     """
 
-    # ----------------------------------------------------------------------
-    # Step 1: Validate that all required environment variables are set.
-    # These hold DB credentials, schema names, and event configuration.
-    # ----------------------------------------------------------------------
+    # -----------------------------
+    # Step 1: Validate environment variables
+    # -----------------------------
     required_env_vars = [
         "HANA_SERVER_NODE",
         "HANA_PORT",
         "HANA_USER",
         "HANA_PASSWORD",
         "HANA_SCHEMA",
-        # "SP_USERS_LOAD_FUNCTION_NAME",  # Used for event naming
-        # "EVENT_URL",                    # Target event destination endpoint
     ]
-
-    # Check for any missing environment variables
     missing_env_vars = [var for var in required_env_vars if not os.environ.get(var)]
     if missing_env_vars:
         error_msg = f"Missing environment variables: {', '.join(missing_env_vars)}"
         logger.error(error_msg)
-        return {
-            "statusCode": 500,
-            "body": json.dumps({"message": error_msg}),
-        }
+        return {"statusCode": 500, "body": json.dumps({"message": error_msg})}
 
-    # ----------------------------------------------------------------------
-    # Step 2: Parse incoming payload (from event trigger or HTTP request)
-    # event may come from Kyma Function, API Gateway, or CloudEvent.
-    # ----------------------------------------------------------------------
+    # -----------------------------
+    # Step 2: Extract payload
+    # -----------------------------
     users = event.get("body") or event.get("data")
+    if not users:
+        logger.error("No payload found in event.")
+        return {"statusCode": 400, "body": json.dumps({"message": "No payload provided"})}
 
-    # If the incoming data is a string, attempt to parse JSON
+    # -----------------------------
+    # Step 3: Parse JSON string if needed
+    # -----------------------------
     if isinstance(users, str):
         try:
             users = json.loads(users)
         except json.JSONDecodeError:
-            logger.error("Error parsing JSON in request body")
-            return {
-                "statusCode": 400,
-                "body": json.dumps({"message": "Invalid JSON in request body."}),
-            }
+            logger.error("Invalid JSON payload")
+            return {"statusCode": 400, "body": json.dumps({"message": "Invalid JSON payload"})}
 
-    # ----------------------------------------------------------------------
-    # Step 3: Normalize data format.
-    # Convert single record (dict) to a list for consistency.
-    # ----------------------------------------------------------------------
-    if not isinstance(users, list):
-        if users:
-            logger.info("Received a single user record. Wrapping it in a list.")
-            users = [users]
-        else:
-            logger.warning("Received no user data. Converting to empty list.")
-            users = []
+    # -----------------------------
+    # Step 4: Normalize to list
+    # -----------------------------
+    if isinstance(users, dict):
+        users = [users]
+    elif not isinstance(users, list):
+        logger.error("Payload must be a dict or list of dicts")
+        return {"statusCode": 400, "body": json.dumps({"message": "Invalid payload format"})}
 
-    # ----------------------------------------------------------------------
-    # Step 4: Validate user data list.
-    # Reject empty lists — no work to perform.
-    # ----------------------------------------------------------------------
     if not users:
-        logger.error("No user records provided.")
+        logger.warning("Empty user list received")
+        return {"statusCode": 400, "body": json.dumps({"message": "Empty user list"})}
+
+    # -----------------------------
+    # Step 5: Pass payload to db_operation service
+    # -----------------------------
+    try:
+        db_result = insert_or_update_users_bulk(users)
+
+        msg = f"Processed users: {db_result['inserted']} inserted, {db_result['updated']} updated."
+        logger.info(msg)
+
         return {
-            "statusCode": 400,
-            "body": json.dumps(
-                {"message": "Request body must contain a list of user records."}
-            ),
+            "statusCode": 200,
+            "body": json.dumps({
+                "message": msg,
+                "inserted": db_result["inserted"],
+                "updated": db_result["updated"]
+            }),
         }
 
-    # ----------------------------------------------------------------------
-    # Step 5: Process the users and publish event **in parallel**.
-    # This improves p
-
+    except Exception as e:
+        logger.exception("Error processing user data in DB")
+        return {
+            "statusCode": 500,
+            "body": json.dumps({"message": f"Error processing users: {str(e)}"}),
+        }
