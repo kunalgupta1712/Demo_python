@@ -3,6 +3,7 @@ import json
 import logging
 from db_operation import insert_or_update_users_bulk
 
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
