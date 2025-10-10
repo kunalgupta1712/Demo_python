@@ -8,30 +8,14 @@ logger = logging.getLogger(__name__)
 
 def main(event, context=None):
     """
-    Kyma handler for API POST JSON payload (handles CloudEvent or dict)
+    Handler for SAP Kyma serverless Python function with CloudEvent.
     """
 
     try:
-        # Kyma wraps HTTP requests as CloudEvent ('lib.ce.Event'), which acts like a dict
-        # Extract body for Kyma CloudEvent or use directly for normal dict usage
-        if hasattr(event, 'extensions') and event.extensions and "request" in event.extensions:
-            request_data = event.extensions["request"]
-            if hasattr(request_data, "body"):
-                payload = request_data.body
-            else:
-                return {
-                    "statusCode": 400,
-                    "body": json.dumps({"message": "No payload in request"})
-                }
-        elif isinstance(event, dict):
-            payload = event.get("body") or event.get("data") or event
-        else:
-            return {
-                "statusCode": 400,
-                "body": json.dumps({"message": f"Unsupported event type: {type(event)}"})
-            }
+        # Extract payload from lib.ce.Event.data attribute
+        # Can be dict or JSON string needing parsing
+        payload = event.data  
 
-        # Parse JSON if input is a string
         if isinstance(payload, str):
             payload = json.loads(payload)
 
@@ -39,7 +23,6 @@ def main(event, context=None):
         if not isinstance(payload, list):
             payload = [payload]
 
-        # Filter valid users
         valid_users = [u for u in payload if str(u.get("userID", "")).startswith("P")]
         skipped_users = [u for u in payload if not str(u.get("userID", "")).startswith("P")]
 
@@ -49,7 +32,7 @@ def main(event, context=None):
                 "body": json.dumps({"message": "No valid users to process"})
             }
 
-        # Insert/update
+        # Insert or update the valid users
         result = insert_or_update_users_bulk(valid_users)
 
         return {
