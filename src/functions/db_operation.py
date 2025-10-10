@@ -1,274 +1,133 @@
 import os
 import logging
-from typing import List, Dict, Any, Optional
-from datetime import datetime
+import uuid
+from typing import List, Dict, Any
 from db_connection import get_hana_client
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Constants
-USER_ID_KEY = "User ID"
-
-
 def insert_or_update_users_bulk(users: List[Dict[str, Any]]) -> Dict[str, int]:
     """
-    Insert or update users in bulk in the HANA database.
-
-    Args:
-        users: List of user dictionaries containing S/P data
-
-    Returns:
-        Dictionary with counts of inserted and updated records
-
-    Raises:
-        Exception: If database operation fails
+    Insert or update users in bulk into the staging.PUser table.
     """
-    if not os.environ.get("HANA_SCHEMA"):
+    schema = os.getenv("HANA_SCHEMA")
+    if not schema:
         raise ValueError("Environment variable HANA_SCHEMA is not set.")
 
     engine = get_hana_client()
 
     try:
-        # Start a transaction
         with engine.begin() as connection:
-            # Get existing users based on UserIDs
-            existing_users = get_existing_users(
-                connection, [user[USER_ID_KEY] for user in users]
-            )
+            # Fetch existing userIDs
+            user_ids = [u["userID"] for u in users if "userID" in u]
+            existing = get_existing_users(connection, schema, user_ids)
 
-            # Separate new and existing users
-            new_users = [
-                user for user in users if user[USER_ID_KEY] not in existing_users
-            ]
-            existing_users_to_update = [
-                user for user in users if user[USER_ID_KEY] in existing_users
-            ]
+            # Split into new and existing users
+            new_users = [u for u in users if u["userID"] not in existing]
+            existing_users = [u for u in users if u["userID"] in existing]
 
-            # Insert new users
             if new_users:
-                insert_users_bulk(connection, new_users)
+                insert_users_bulk(connection, schema, new_users)
 
-            # Update existing users
-            if existing_users_to_update:
-                update_users_bulk(connection, existing_users_to_update)
+            if existing_users:
+                update_users_bulk(connection, schema, existing_users)
 
-            return {
-                "inserted": len(new_users),
-                "updated": len(existing_users_to_update),
-            }
+            logger.info(f"Inserted: {len(new_users)}, Updated: {len(existing_users)}")
+            return {"inserted": len(new_users), "updated": len(existing_users)}
 
-    except Exception as error:
-        logger.error("Error during bulk insert/update operation: %s", error)
-        raise error
+    except Exception as e:
+        logger.exception("Error in bulk insert/update")
+        raise e
 
 
-def get_existing_users(connection: Any, userids: List[str]) -> List[str]:
+def get_existing_users(connection, schema: str, user_ids: List[str]) -> List[str]:
     """
-    Get existing users based on IDs.
-
-    Args:
-        connection: Database connection object
-        userids: List of IDs to check
-
-    Returns:
-        List of existing IDs
+    Return list of userIDs that already exist in staging.PUser.
     """
-    if not userids:
+    if not user_ids:
         return []
 
-    # Using parameterized queries to prevent SQL injection
-    schema = os.environ.get("HANA_SCHEMA")
-    placeholders = ", ".join([f":id_{i}" for i in range(len(userids))])
-
-    query = f"""
-        SELECT userid 
-        FROM {schema}.SP_USERS 
-        WHERE userid IN ({placeholders})
-    """
-
-    # Create parameters dictionary
-    params = {f"id_{i}": id for i, id in enumerate(userids)}
+    placeholders = ", ".join([f":id_{i}" for i in range(len(user_ids))])
+    query = f"SELECT userID FROM {schema}.PUSER WHERE userID IN ({placeholders})"
+    params = {f"id_{i}": val for i, val in enumerate(user_ids)}
 
     result = connection.execute(query, params)
     return [row[0] for row in result.fetchall()]
 
 
-def insert_users_bulk(connection: Any, users: List[Dict[str, Any]]) -> None:
+def insert_users_bulk(connection, schema: str, users: List[Dict[str, Any]]):
     """
-    Insert new users in bulk using batch operations.
-
-    Args:
-        connection: Database connection object
-        users: List of user dictionaries to insert
+    Insert new users into staging.PUser.
+    Auto-generates userUuid (UUID v4).
     """
-    if not users:
-        return
-
-    schema = os.environ.get("HANA_SCHEMA")
-
-    insert_sql = f"""
-        INSERT INTO {schema}.SP_USERS (
-            userid, userStatus, companyName, email, phoneNumber, customerNumber, country,
-            city, postalCode, street, firstName, lastName, language,
-            expiryDate, department, additionalNote
-        ) VALUES (
-            :userid, :userStatus, :companyName, :email, :phoneNumber, :customerNumber, :country,
-            :city, :postalCode, :street, :firstName, :lastName, :language,
-            :expiryDate, :department, :additionalNote
+    sql = f"""
+        INSERT INTO {schema}.PUSER (
+            userID, firstName, lastName, displayName, email, phoneNumber, country,
+            zip, userUuid, userName, status, userType
+        )
+        VALUES (
+            :userID, :firstName, :lastName, :displayName, :email, :phoneNumber, :country,
+            :zip, :userUuid, :userName, :status, :userType
         )
     """
 
-    batch_data = []
-    for user in users:
-        batch_data.append(
-            {
-                "userid": user[USER_ID_KEY],
-                "userStatus": user["Status"],
-                "companyName": user["Company Name"],
-                "email": user["Email"],
-                "phoneNumber": user["Phone Number"],
-                "customerNumber": user["Customer Number"],
-                "country": user["Country"],
-                "city": user["City"],
-                "postalCode": user["Postal Code"],
-                "street": user["Street"],
-                "firstName": user["First Name"],
-                "lastName": user["Last Name"],
-                "language": user["Language"],
-                "expiryDate": format_date(user["Expiry Date"]),
-                "department": user["Department"],
-                "additionalNote": user["Additional Note"],
-            }
-        )
+    batch = []
+    for u in users:
+        batch.append({
+            "userID": u.get("userID"),
+            "firstName": u.get("firstName"),
+            "lastName": u.get("lastName"),
+            "displayName": u.get("displayName"),
+            "email": u.get("email"),
+            "phoneNumber": u.get("phoneNumber"),
+            "country": u.get("country"),
+            "zip": u.get("zip"),
+            "userUuid": str(uuid.uuid4()),   # auto-generate UUID
+            "userName": u.get("userName"),
+            "status": u.get("status"),
+            "userType": u.get("userType")
+        })
 
-    connection.execute(insert_sql, batch_data)
-    logger.info("Inserted %d new users", len(users))
+    connection.execute(sql, batch)
+    logger.info(f"Inserted {len(users)} new users")
 
 
-def update_users_bulk(connection: Any, users: List[Dict[str, Any]]) -> None:
+def update_users_bulk(connection, schema: str, users: List[Dict[str, Any]]):
     """
-    Update existing users in bulk using batch operations.
-
-    Args:
-        connection: Database connection object
-        users: List of user dictionaries to update
+    Update existing users in staging.PUser.
     """
-    if not users:
-        return
-
-    schema = os.environ.get("HANA_SCHEMA")
-
-    update_sql = f"""
-        UPDATE {schema}.SP_USERS
-        SET userStatus = :userStatus,
-            companyName = :companyName,
+    sql = f"""
+        UPDATE {schema}.PUSER
+        SET firstName = :firstName,
+            lastName = :lastName,
+            displayName = :displayName,
             email = :email,
             phoneNumber = :phoneNumber,
-            customerNumber = :customerNumber,
             country = :country,
-            city = :city,
-            postalCode = :postalCode,
-            street = :street,
-            firstName = :firstName,
-            lastName = :lastName,
-            language = :language,
-            expiryDate = :expiryDate,
-            department = :department,
-            additionalNote = :additionalNote
-        WHERE userid = :userid
+            zip = :zip,
+            userName = :userName,
+            status = :status,
+            userType = :userType
+        WHERE userID = :userID
     """
 
-    batch_data = []
-    for user in users:
-        batch_data.append(
-            {
-                "userid": user[USER_ID_KEY],
-                "userStatus": user["Status"],
-                "companyName": user["Company Name"],
-                "email": user["Email"],
-                "phoneNumber": user["Phone Number"],
-                "customerNumber": user["Customer Number"],
-                "country": user["Country"],
-                "city": user["City"],
-                "postalCode": user["Postal Code"],
-                "street": user["Street"],
-                "firstName": user["First Name"],
-                "lastName": user["Last Name"],
-                "language": user["Language"],
-                "expiryDate": format_date(user["Expiry Date"]),
-                "department": user["Department"],
-                "additionalNote": user["Additional Note"],
-            }
-        )
+    batch = []
+    for u in users:
+        batch.append({
+            "userID": u.get("userID"),
+            "firstName": u.get("firstName"),
+            "lastName": u.get("lastName"),
+            "displayName": u.get("displayName"),
+            "email": u.get("email"),
+            "phoneNumber": u.get("phoneNumber"),
+            "country": u.get("country"),
+            "zip": u.get("zip"),
+            "userName": u.get("userName"),
+            "status": u.get("status"),
+            "userType": u.get("userType")
+        })
 
-    connection.execute(update_sql, batch_data)
-    logger.info("Updated %d existing users", len(users))
-
-
-def format_date(date_str: Optional[str]) -> Optional[str]:
-    """
-    Format date string for database insertion.
-
-    Args:
-        date_str: Date string to format
-
-    Returns:
-        Formatted date string or None if input is None/invalid
-    """
-    if not date_str:
-        return None
-
-    try:
-        return datetime.fromisoformat(date_str).date().isoformat()
-    except (ValueError, TypeError):
-        return None
-
-
-def get_custom_field_value(user: Dict[str, Any], field_name: str) -> str:
-    """
-    Extract custom field values from user object.
-
-    Args:
-        user: User dictionary
-        field_name: Name of the field to extract
-
-    Returns:
-        Field value or empty string if not found
-    """
-    if field_name in user:
-        return user.get(field_name, "") or ""
-
-    if isinstance(user.get("Custom Fields"), list):
-        for field in user["Custom Fields"]:
-            if field.get("name") == field_name:
-                return field.get("value", "") or ""
-
-    return ""
-
-
-def get_cost_center_code(user: Dict[str, Any]) -> str:
-    """
-    Get cost center code with fallback.
-
-    Args:
-        user: User dictionary
-
-    Returns:
-        Cost center code or empty string
-    """
-    return user.get("Cost Center Code") or user.get("Cost Object Code") or ""
-
-
-def get_cost_center_name(user: Dict[str, Any]) -> str:
-    """
-    Get cost center name with fallback.
-
-    Args:
-        user: User dictionary
-
-    Returns:
-        Cost center name or empty string
-    """
-    return user.get("Cost Object Name") or user.get("Cost Center Name") or ""
+    connection.execute(sql, batch)
+    logger.info(f"Updated {len(users)} existing users")
