@@ -10,12 +10,14 @@ logger = logging.getLogger(__name__)
 def main(event, context=None):
     """
     Kyma handler to process POST JSON payload.
-    Accepts JSON array or single object from API tools like Bruno/Postman.
+    Accepts JSON array or single object from API tools or CloudEvents.
     """
 
     try:
-        # Extract payload
-        if isinstance(event, dict):
+        # ✅ Handle CloudEvent type (Kyma wraps incoming JSON inside lib.ce.Event)
+        if hasattr(event, "data"):
+            payload = event.data
+        elif isinstance(event, dict):
             payload = event.get("body") or event.get("data") or event
         else:
             return {
