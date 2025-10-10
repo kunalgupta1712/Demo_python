@@ -4,6 +4,7 @@ import uuid
 from typing import List, Dict, Any
 from db_connection import get_hana_client
 
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
