@@ -13,11 +13,15 @@ def main(event, context=None):
 
     try:
         # Extract payload from lib.ce.Event.data attribute
-        # Can be dict or JSON string needing parsing
-        payload = event.data  
+        payload = event.data
 
+        # Log raw payload
+        logger.info(f"Received payload from event.data: {payload}")
+
+        # Parse payload if string
         if isinstance(payload, str):
             payload = json.loads(payload)
+            logger.info(f"Parsed payload to JSON: {payload}")
 
         # Normalize to list
         if not isinstance(payload, list):
@@ -25,6 +29,9 @@ def main(event, context=None):
 
         valid_users = [u for u in payload if str(u.get("userID", "")).startswith("P")]
         skipped_users = [u for u in payload if not str(u.get("userID", "")).startswith("P")]
+
+        logger.info(f"Valid users: {valid_users}")
+        logger.info(f"Skipped users: {skipped_users}")
 
         if not valid_users:
             return {
@@ -34,6 +41,8 @@ def main(event, context=None):
 
         # Insert or update the valid users
         result = insert_or_update_users_bulk(valid_users)
+
+        logger.info(f"Insert/update result: {result}")
 
         return {
             "statusCode": 200,
@@ -46,8 +55,4 @@ def main(event, context=None):
         }
 
     except Exception as e:
-        logger.exception("Error processing request")
-        return {
-            "statusCode": 500,
-            "body": json.dumps({"message": "Internal Server Error", "error": str(e)})
-        }
+        logger.exception
