@@ -10,7 +10,7 @@ from db_operation import insert_or_update_users_bulk
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def main(event: Dict[str, Any]) -> Dict[str, Union[int, str]]:
+def main(event: Dict[str, Any], context=None) -> Dict[str, Union[int, str]]:
     """
     Main handler to accept user payload and pass it to DB operation.
     """
