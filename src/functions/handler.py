@@ -1,11 +1,17 @@
 import os
 import json
 import logging
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, Union
 from concurrent.futures import ThreadPoolExecutor
 
 # Custom modules
 from db_operation import insert_or_update_users_bulk  # Handles DB insert/update logic
+
+# Kyma CloudEvent support
+try:
+    from lib.ce import Event
+except ImportError:
+    Event = None  # local testing fallback
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -37,13 +43,13 @@ def main(event: Any, context: Any = None) -> Dict[str, Union[int, str]]:
     # ----------------------------
     # Step 2: Extract payload
     # ----------------------------
-    users: Union[List[Dict[str, Any]], Dict[str, Any], None] = None
+    users: Union[Dict, list, None] = None
 
     try:
-        # CloudEvent (Kyma runtime)
-        if hasattr(event, "data"):
+        # CloudEvent object
+        if Event is not None and isinstance(event, Event):
             users = event.data
-        # plain dict (e.g., for local testing / API tool)
+        # Plain dict (for local testing / API tool)
         elif isinstance(event, dict):
             users = event.get("body") or event.get("data")
         else:
@@ -81,7 +87,6 @@ def main(event: Any, context: Any = None) -> Dict[str, Union[int, str]]:
     # Step 5: Call db_operation to insert/update users
     # ----------------------------
     try:
-        # ThreadPoolExecutor for potential parallel tasks (future)
         with ThreadPoolExecutor(max_workers=1) as executor:
             future = executor.submit(insert_or_update_users_bulk, users)
             result = future.result()
