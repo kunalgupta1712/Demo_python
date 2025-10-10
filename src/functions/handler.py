@@ -3,66 +3,72 @@ import json
 import logging
 from db_operation import insert_or_update_users_bulk
 
+# Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 def main(event, context=None):
     """
-    Kyma Python handler for POST JSON payloads.
-    Supports:
-      - Plain dict (API testing)
-      - CloudEvent (only if .data exists)
+    Kyma Python handler that supports:
+      - CloudEvents (lib.ce.Event)
+      - Plain dict (API tool / local testing)
     """
     try:
-        # Step 0: Log the incoming event
+        # --- Step 0: Log incoming event ---
         logger.info(f"Received event: {event}")
         logger.info(f"Event type: {type(event)}")
         logger.info(f"Event attributes: {dir(event)}")
 
+        # --- Step 1: Determine payload ---
         payload = None
 
-        # Step 1: Try CloudEvent first
-        if hasattr(event, "data"):
-            payload = getattr(event, "data")
-            if payload is not None:
-                logger.info("Detected CloudEvent with data")
-            else:
-                logger.warning("CloudEvent has no data attribute")
-
-        # Step 2: Fallback to plain dict
-        if payload is None and isinstance(event, dict):
+        # Plain dict payload (Postman / local API)
+        if isinstance(event, dict):
             payload = event.get("body") or event.get("data") or event
             logger.info("Detected plain dict payload")
 
-        # Step 3: If still None, unsupported event
-        if payload is None:
+        # CloudEvent from Kyma
+        elif hasattr(event, "__dict__"):
+            # Try 'data' first, then fallback to __dict__ keys
+            payload = getattr(event, "data", None)
+            if payload:
+                logger.info("Detected CloudEvent with data attribute")
+            else:
+                # Fallback: try __dict__ keys
+                payload = event.__dict__.get("body") or event.__dict__.get("data")
+                if payload:
+                    logger.info("Detected CloudEvent with payload in __dict__")
+                else:
+                    logger.error("Failed to extract payload from CloudEvent")
+                    return {
+                        "statusCode": 400,
+                        "body": json.dumps({"message": "CloudEvent has no accessible data field"})
+                    }
+        else:
             logger.error(f"Unsupported event type: {type(event)}")
             return {
                 "statusCode": 400,
                 "body": json.dumps({"message": f"Unsupported event type: {type(event)}"})
             }
 
-        # Step 4: Parse JSON string if needed
-        if isinstance(payload, str):
-            try:
-                payload = json.loads(payload)
-            except json.JSONDecodeError:
-                logger.error("Invalid JSON in payload")
-                return {
-                    "statusCode": 400,
-                    "body": json.dumps({"message": "Invalid JSON payload"})
-                }
+        logger.info(f"Raw payload: {payload}")
 
-        # Step 5: Normalize to list
+        # --- Step 2: Parse JSON string if needed ---
+        if isinstance(payload, str):
+            payload = json.loads(payload)
+            logger.info("Parsed JSON string payload into object")
+
+        # --- Step 3: Normalize to list ---
         if not isinstance(payload, list):
             payload = [payload]
+            logger.info("Normalized payload to list")
 
-        # Step 6: Filter valid users (userID starts with 'P')
+        # --- Step 4: Filter valid users ---
         valid_users = [u for u in payload if str(u.get("userID", "")).startswith("P")]
         skipped_users = [u for u in payload if not str(u.get("userID", "")).startswith("P")]
 
         if skipped_users:
-            logger.warning(f"Skipped users: {[u.get('userID') for u in skipped_users]}")
+            logger.warning(f"Skipped users (invalid userID): {[u.get('userID') for u in skipped_users]}")
 
         if not valid_users:
             logger.error("No valid users to process")
@@ -71,11 +77,11 @@ def main(event, context=None):
                 "body": json.dumps({"message": "No valid users to process"})
             }
 
-        # Step 7: Insert/update in DB
+        # --- Step 5: Insert/update DB ---
         result = insert_or_update_users_bulk(valid_users)
-        logger.info(f"Inserted: {result.get('inserted', 0)}, Updated: {result.get('updated', 0)}")
+        logger.info(f"DB Operation Result: {result}")
 
-        # Step 8: Return response
+        # --- Step 6: Return success response ---
         return {
             "statusCode": 200,
             "body": json.dumps({
