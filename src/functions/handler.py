@@ -6,7 +6,6 @@ from db_operation import insert_or_update_users_bulk
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-
 def main(event, context=None):
     """
     Handles CloudEvent (Kyma) and direct JSON input (from Bruno/Postman).
