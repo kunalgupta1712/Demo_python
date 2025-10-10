@@ -4,24 +4,16 @@ import logging
 from typing import Any, Dict, Union
 from concurrent.futures import ThreadPoolExecutor
 
-# Custom modules
-from db_operation import insert_or_update_users_bulk
-
-# Kyma CloudEvent support
-try:
-    from lib.ce import Event
-except ImportError:
-    Event = None  # local testing fallback
+from db_operation import insert_or_update_users_bulk  # DB service
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-
 def main(event: Any, context: Any = None) -> Dict[str, Union[int, str]]:
     """
     Kyma function handler for processing user data.
-    Supports lib.ce.Event and plain dict payloads.
+    Supports lib.ce.Event (CloudEvent) and plain dict payloads.
     """
 
     # Step 1: Validate environment variables
@@ -42,8 +34,10 @@ def main(event: Any, context: Any = None) -> Dict[str, Union[int, str]]:
     users: Union[Dict, list, None] = None
 
     try:
-        if Event is not None and isinstance(event, Event):
-            users = event.get_data()  # <-- Use get_data() instead of .data
+        # CloudEvent from Kyma
+        if hasattr(event, "data"):
+            users = event.data
+        # plain dict (local testing, API tool)
         elif isinstance(event, dict):
             users = event.get("body") or event.get("data")
         else:
