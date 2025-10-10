@@ -8,12 +8,22 @@ logger = logging.getLogger(__name__)
 
 def main(event, context=None):
     """
-    Kyma handler for API POST JSON payload (no CloudEvent support)
+    Kyma handler for API POST JSON payload (handles CloudEvent or dict)
     """
 
     try:
-        # event is expected to be a dict (from API tool)
-        if isinstance(event, dict):
+        # Kyma wraps HTTP requests as CloudEvent ('lib.ce.Event'), which acts like a dict
+        # Extract body for Kyma CloudEvent or use directly for normal dict usage
+        if hasattr(event, 'extensions') and event.extensions and "request" in event.extensions:
+            request_data = event.extensions["request"]
+            if hasattr(request_data, "body"):
+                payload = request_data.body
+            else:
+                return {
+                    "statusCode": 400,
+                    "body": json.dumps({"message": "No payload in request"})
+                }
+        elif isinstance(event, dict):
             payload = event.get("body") or event.get("data") or event
         else:
             return {
@@ -21,7 +31,7 @@ def main(event, context=None):
                 "body": json.dumps({"message": f"Unsupported event type: {type(event)}"})
             }
 
-        # Parse JSON if string
+        # Parse JSON if input is a string
         if isinstance(payload, str):
             payload = json.loads(payload)
 
