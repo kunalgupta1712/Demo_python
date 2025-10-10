@@ -4,7 +4,7 @@ import logging
 from typing import Any, Dict, Union
 from concurrent.futures import ThreadPoolExecutor
 
-from db_operation import insert_or_update_users_bulk  # DB service
+from db_operation import insert_or_update_users_bulk  # Your DB service
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -12,8 +12,8 @@ logger = logging.getLogger(__name__)
 
 def main(event: Any, context: Any = None) -> Dict[str, Union[int, str]]:
     """
-    Kyma function handler for processing user data.
-    Supports lib.ce.Event (CloudEvent) and plain dict payloads.
+    Kyma function handler for processing user data from API POST calls.
+    Expects the payload in event['body'] as JSON (dict or list).
     """
 
     # Step 1: Validate environment variables
@@ -30,22 +30,13 @@ def main(event: Any, context: Any = None) -> Dict[str, Union[int, str]]:
         logger.error(error_msg)
         return {"statusCode": 500, "body": json.dumps({"message": error_msg})}
 
-    # Step 2: Extract payload
+    # Step 2: Extract payload from event
     users: Union[Dict, list, None] = None
-
-    try:
-        # CloudEvent from Kyma
-        if hasattr(event, "data"):
-            users = event.data
-        # plain dict (local testing, API tool)
-        elif isinstance(event, dict):
-            users = event.get("body") or event.get("data")
-        else:
-            logger.error(f"Unsupported event type: {type(event)}")
-            return {"statusCode": 400, "body": json.dumps({"message": "Unsupported event type"})}
-    except Exception as e:
-        logger.exception("Error extracting payload")
-        return {"statusCode": 400, "body": json.dumps({"message": str(e)})}
+    if isinstance(event, dict):
+        users = event.get("body") or event.get("data")
+    else:
+        logger.error(f"Unsupported event type: {type(event)}")
+        return {"statusCode": 400, "body": json.dumps({"message": "Unsupported event type"})}
 
     # Step 3: Parse JSON if payload is string
     if isinstance(users, str):
