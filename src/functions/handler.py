@@ -1,23 +1,32 @@
 import os
 import json
 import logging
-from typing import Dict, Any, Union, List
+from typing import Any, Dict, List, Union
+from concurrent.futures import ThreadPoolExecutor
 
 # Custom modules
-from db_operation import insert_or_update_users_bulk
+from db_operation import insert_or_update_users_bulk  # Handles DB insert/update logic
 
-# Configure logger
+# Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def main(event: Dict[str, Any], context=None) -> Dict[str, Union[int, str]]:
+
+def main(event: Any, context: Any = None) -> Dict[str, Union[int, str]]:
     """
-    Main handler to accept user payload and pass it to DB operation.
+    Kyma function handler for processing user data.
+    
+    Args:
+        event: Incoming event (CloudEvent object or dict)
+        context: Optional context (ignored here)
+
+    Returns:
+        Dict containing HTTP-style status code and JSON response body
     """
 
-    # -----------------------------
+    # ----------------------------
     # Step 1: Validate environment variables
-    # -----------------------------
+    # ----------------------------
     required_env_vars = [
         "HANA_SERVER_NODE",
         "HANA_PORT",
@@ -25,64 +34,79 @@ def main(event: Dict[str, Any], context=None) -> Dict[str, Union[int, str]]:
         "HANA_PASSWORD",
         "HANA_SCHEMA",
     ]
-    missing_env_vars = [var for var in required_env_vars if not os.environ.get(var)]
+    missing_env_vars = [v for v in required_env_vars if not os.environ.get(v)]
     if missing_env_vars:
         error_msg = f"Missing environment variables: {', '.join(missing_env_vars)}"
         logger.error(error_msg)
         return {"statusCode": 500, "body": json.dumps({"message": error_msg})}
 
-    # -----------------------------
+    # ----------------------------
     # Step 2: Extract payload
-    # -----------------------------
-    users = event.get("body") or event.get("data")
-    if not users:
-        logger.error("No payload found in event.")
-        return {"statusCode": 400, "body": json.dumps({"message": "No payload provided"})}
+    # ----------------------------
+    users: Union[List[Dict[str, Any]], Dict[str, Any], None] = None
 
-    # -----------------------------
-    # Step 3: Parse JSON string if needed
-    # -----------------------------
+    # CloudEvent object (Kyma runtime)
+    if hasattr(event, "data"):
+        users = event.data
+    # plain dict (e.g., for local testing / API tool)
+    elif isinstance(event, dict):
+        users = event.get("body") or event.get("data")
+    else:
+        logger.error(f"Unsupported event type: {type(event)}")
+        return {"statusCode": 400, "body": json.dumps({"message": "Unsupported event type"})}
+
+    # ----------------------------
+    # Step 3: Parse JSON if payload is string
+    # ----------------------------
     if isinstance(users, str):
         try:
             users = json.loads(users)
         except json.JSONDecodeError:
-            logger.error("Invalid JSON payload")
-            return {"statusCode": 400, "body": json.dumps({"message": "Invalid JSON payload"})}
+            logger.error("Invalid JSON in request body")
+            return {"statusCode": 400, "body": json.dumps({"message": "Invalid JSON"})}
 
-    # -----------------------------
+    # ----------------------------
     # Step 4: Normalize to list
-    # -----------------------------
-    if isinstance(users, dict):
-        users = [users]
-    elif not isinstance(users, list):
-        logger.error("Payload must be a dict or list of dicts")
-        return {"statusCode": 400, "body": json.dumps({"message": "Invalid payload format"})}
+    # ----------------------------
+    if not isinstance(users, list):
+        if users:
+            logger.info("Received single user, converting to list")
+            users = [users]
+        else:
+            users = []
 
     if not users:
-        logger.warning("Empty user list received")
-        return {"statusCode": 400, "body": json.dumps({"message": "Empty user list"})}
+        logger.error("No user records provided")
+        return {"statusCode": 400, "body": json.dumps({"message": "No user records provided"})}
 
-    # -----------------------------
-    # Step 5: Pass payload to db_operation service
-    # -----------------------------
+    # ----------------------------
+    # Step 5: Call db_operation to insert/update users
+    # ----------------------------
     try:
-        db_result = insert_or_update_users_bulk(users)
+        # Using ThreadPoolExecutor for potential parallel tasks (event publishing, etc.)
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(insert_or_update_users_bulk, users)
+            result = future.result()
 
-        msg = f"Processed users: {db_result['inserted']} inserted, {db_result['updated']} updated."
-        logger.info(msg)
+        success_msg = f"Successfully processed {result['inserted']} inserts and {result['updated']} updates."
+        logger.info(success_msg)
 
         return {
             "statusCode": 200,
-            "body": json.dumps({
-                "message": msg,
-                "inserted": db_result["inserted"],
-                "updated": db_result["updated"]
-            }),
+            "body": json.dumps(
+                {
+                    "message": success_msg,
+                    "inserted": result["inserted"],
+                    "updated": result["updated"],
+                }
+            ),
         }
 
     except Exception as e:
-        logger.exception("Error processing user data in DB")
+        logger.exception("Error processing users")
         return {
             "statusCode": 500,
-            "body": json.dumps({"message": f"Error processing users: {str(e)}"}),
+            "body": json.dumps(
+                {"message": "Error processing users", "error": str(e)}
+            ),
         }
