@@ -6,7 +6,6 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
-
 def main(event, context=None):
     """
     Handles both CloudEvent (Kyma) and direct JSON input (from Bruno/Postman).
