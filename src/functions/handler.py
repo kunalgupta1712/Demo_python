@@ -9,11 +9,12 @@ logger = logging.getLogger(__name__)
 
 def main(event, context=None):
     """
-    Kyma Python handler that supports:
-      - CloudEvents (lib.ce.Event)
-      - Plain dict (API tool testing)
-    Logs all steps for debugging.
+    Kyma Python handler supporting:
+      - CloudEvents (lib.ce.Event) via event.req
+      - Plain dict payloads (API tools like Postman)
+    Preserves detailed logging for debugging.
     """
+
     try:
         logger.info(f"Received event: {event}")
         logger.info(f"Event type: {type(event)}")
@@ -22,14 +23,34 @@ def main(event, context=None):
         # Step 1: Determine payload
         payload = None
 
-        # Kyma CloudEvent
-        if hasattr(event, "data"):
-            payload = event.data
-            logger.info("Detected CloudEvent payload")
+        # CloudEvent (Python)
+        if hasattr(event, "req"):
+            try:
+                # Try reading JSON directly
+                payload = event.req.json
+                logger.info("Detected CloudEvent payload via event.req.json")
+            except Exception as e_json:
+                # fallback: read raw body
+                try:
+                    raw_body = event.req.body.read()
+                    payload = json.loads(raw_body)
+                    logger.info("Detected CloudEvent payload via event.req.body")
+                except Exception as e_body:
+                    logger.exception("Failed to extract payload from CloudEvent")
+                    return {
+                        "statusCode": 400,
+                        "body": json.dumps({
+                            "message": "CloudEvent has no accessible data field",
+                            "error_json": str(e_json),
+                            "error_body": str(e_body)
+                        })
+                    }
+
         # Plain dict (local API testing)
         elif isinstance(event, dict):
             payload = event.get("body") or event.get("data") or event
             logger.info("Detected plain dict payload")
+
         else:
             logger.error(f"Unsupported event type: {type(event)}")
             return {
@@ -37,20 +58,24 @@ def main(event, context=None):
                 "body": json.dumps({"message": f"Unsupported event type: {type(event)}"})
             }
 
-        logger.info(f"Raw payload before parsing: {payload}")
-
         # Step 2: Parse JSON string if needed
         if isinstance(payload, str):
-            payload = json.loads(payload)
-            logger.info(f"Parsed JSON payload: {payload}")
+            try:
+                payload = json.loads(payload)
+                logger.info("Parsed payload from JSON string")
+            except json.JSONDecodeError:
+                logger.error("Invalid JSON payload")
+                return {
+                    "statusCode": 400,
+                    "body": json.dumps({"message": "Invalid JSON in payload"})
+                }
 
         # Step 3: Normalize to list
         if not isinstance(payload, list):
             payload = [payload]
             logger.info("Normalized payload to list")
 
-        logger.info(f"Payload count: {len(payload)}")
-        logger.info(f"Payload content: {payload}")
+        logger.info(f"Payload received: {payload}")
 
         # Step 4: Filter valid users (userID starting with 'P')
         valid_users = [u for u in payload if str(u.get("userID", "")).startswith("P")]
@@ -65,8 +90,6 @@ def main(event, context=None):
                 "statusCode": 400,
                 "body": json.dumps({"message": "No valid users to process"})
             }
-
-        logger.info(f"Valid users to process: {valid_users}")
 
         # Step 5: Insert/update DB
         result = insert_or_update_users_bulk(valid_users)
