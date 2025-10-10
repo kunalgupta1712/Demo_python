@@ -7,35 +7,25 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 def main(event, context=None):
+    """
+    Kyma handler for API POST JSON payload (no CloudEvent support)
+    """
+
     try:
-        # 🔍 Step 1: Log event info (to understand structure)
-        logger.info(f"Event type: {type(event)}")
-        logger.info(f"Event attributes: {dir(event)}")
-        logger.info(f"Event content: {getattr(event, '__dict__', {})}")
+        # event is expected to be a dict (from API tool)
+        if isinstance(event, dict):
+            payload = event.get("body") or event.get("data") or event
+        else:
+            return {
+                "statusCode": 400,
+                "body": json.dumps({"message": f"Unsupported event type: {type(event)}"})
+            }
 
-        # 🔍 Step 2: Try to extract payload
-        payload = None
-
-        # Case 1: If CloudEvent object
-        if hasattr(event, "data"):
-            payload = getattr(event, "data", None)
-        elif hasattr(event, "_Event__data"):
-            payload = getattr(event, "_Event__data", None)
-        elif hasattr(event, "_data"):
-            payload = getattr(event, "_data", None)
-
-        # Case 2: If payload still not found
-        if not payload:
-            if isinstance(event, dict):
-                payload = event.get("body") or event.get("data") or event
-            elif isinstance(event, str):
-                payload = json.loads(event)
-
-        # Case 3: Parse JSON string
+        # Parse JSON if string
         if isinstance(payload, str):
             payload = json.loads(payload)
 
-        # Ensure list
+        # Normalize to list
         if not isinstance(payload, list):
             payload = [payload]
 
@@ -44,9 +34,12 @@ def main(event, context=None):
         skipped_users = [u for u in payload if not str(u.get("userID", "")).startswith("P")]
 
         if not valid_users:
-            return {"statusCode": 400, "body": json.dumps({"message": "No valid users to process"})}
+            return {
+                "statusCode": 400,
+                "body": json.dumps({"message": "No valid users to process"})
+            }
 
-        # Step 4: Insert/update in DB
+        # Insert/update
         result = insert_or_update_users_bulk(valid_users)
 
         return {
@@ -60,5 +53,8 @@ def main(event, context=None):
         }
 
     except Exception as e:
-        logger.exception("Error processing event")
-        return {"statusCode": 400, "body": json.dumps({"message": str(e)})}
+        logger.exception("Error processing request")
+        return {
+            "statusCode": 500,
+            "body": json.dumps({"message": "Internal Server Error", "error": str(e)})
+        }
