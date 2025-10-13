@@ -2,13 +2,16 @@ import json
 from db_operation import insert_or_update_users_bulk
 
 def main(event, context):
+    # Log the incoming event payload for debugging
+    print(f"Received event payload: {event}")
+
     # event should contain the JSON payload sent via API
     try:
         # If the event body is a string, parse it
         if isinstance(event, str):
             json_array = json.loads(event)
         elif isinstance(event, dict):
-            # If the event is a dict, check if payload is under 'body'
+            # If the payload is under 'body', parse it
             if "body" in event:
                 json_array = json.loads(event["body"])
             else:
@@ -22,7 +25,7 @@ def main(event, context):
     # Filter users whose userID starts with 'P'
     valid_users = [user for user in json_array if str(user.get("userID", "")).startswith("P")]
 
-    # Optionally, log or print skipped users
+    # Optionally, log skipped users
     skipped_users = [user for user in json_array if not str(user.get("userID", "")).startswith("P")]
     if skipped_users:
         print(f"Skipped users (invalid userID): {[user.get('userID') for user in skipped_users]}")
