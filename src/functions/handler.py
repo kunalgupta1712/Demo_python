@@ -1,100 +1,23 @@
 import os
 import json
-import logging
 from db_operation import insert_or_update_users_bulk
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+async def main(event, context):
+    json_file_path = os.path.join(os.path.dirname(__file__), 'data.json')
+    with open(json_file_path, 'r') as f:
+        json_array = json.load(f)
 
-def main(event, context=None):
-    """
-    Kyma Python handler that supports:
-      - CloudEvents (lib.ce.Event)
-      - Plain dict (API tool / local testing)
-    """
-    try:
-        # --- Step 0: Log incoming event ---
-        logger.info(f"Received event: {event}")
-        logger.info(f"Event type: {type(event)}")
-        logger.info(f"Event attributes: {dir(event)}")
+    # Filter users whose userID starts with 'P'
+    valid_users = [user for user in json_array if str(user.get("userID", "")).startswith("P")]
 
-        # --- Step 1: Determine payload ---
-        payload = None
+    # Optionally, log or print skipped users
+    skipped_users = [user for user in json_array if not str(user.get("userID", "")).startswith("P")]
+    if skipped_users:
+        print(f"Skipped users (invalid userID): {[user.get('userID') for user in skipped_users]}")
 
-        # Plain dict payload (Postman / local API)
-        if isinstance(event, dict):
-            payload = event.get("body") or event.get("data") or event
-            logger.info("Detected plain dict payload")
-
-        # CloudEvent from Kyma
-        elif hasattr(event, "__dict__"):
-            # Try 'data' first, then fallback to __dict__ keys
-            payload = getattr(event, "data", None)
-            if payload:
-                logger.info("Detected CloudEvent with data attribute")
-            else:
-                # Fallback: try __dict__ keys
-                payload = event.__dict__.get("body") or event.__dict__.get("data")
-                if payload:
-                    logger.info("Detected CloudEvent with payload in __dict__")
-                else:
-                    logger.error("Failed to extract payload from CloudEvent")
-                    return {
-                        "statusCode": 400,
-                        "body": json.dumps({"message": "CloudEvent has no accessible data field"})
-                    }
-        else:
-            logger.error(f"Unsupported event type: {type(event)}")
-            return {
-                "statusCode": 400,
-                "body": json.dumps({"message": f"Unsupported event type: {type(event)}"})
-            }
-
-        logger.info(f"Raw payload: {payload}")
-
-        # --- Step 2: Parse JSON string if needed ---
-        if isinstance(payload, str):
-            payload = json.loads(payload)
-            logger.info("Parsed JSON string payload into object")
-
-        # --- Step 3: Normalize to list ---
-        if not isinstance(payload, list):
-            payload = [payload]
-            logger.info("Normalized payload to list")
-
-        # --- Step 4: Filter valid users ---
-        valid_users = [u for u in payload if str(u.get("userID", "")).startswith("P")]
-        skipped_users = [u for u in payload if not str(u.get("userID", "")).startswith("P")]
-
-        if skipped_users:
-            logger.warning(f"Skipped users (invalid userID): {[u.get('userID') for u in skipped_users]}")
-
-        if not valid_users:
-            logger.error("No valid users to process")
-            return {
-                "statusCode": 400,
-                "body": json.dumps({"message": "No valid users to process"})
-            }
-
-        # --- Step 5: Insert/update DB ---
+    # Call the DB operation
+    if valid_users:
         result = insert_or_update_users_bulk(valid_users)
-        logger.info(f"DB Operation Result: {result}")
-
-        # --- Step 6: Return success response ---
-        return {
-            "statusCode": 200,
-            "body": json.dumps({
-                "message": "Users processed successfully",
-                "inserted": result.get("inserted", 0),
-                "updated": result.get("updated", 0),
-                "skipped": len(skipped_users)
-            })
-        }
-
-    except Exception as e:
-        logger.exception("Error processing request")
-        return {
-            "statusCode": 500,
-            "body": json.dumps({"message": "Internal Server Error", "error": str(e)})
-        }
+        print(f"DB Operation Result: {result}")
+    else:
+        print("No valid users to process.")
