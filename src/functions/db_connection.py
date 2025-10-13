@@ -1,5 +1,6 @@
 import os
 import logging
+import urllib.parse
 from sqlalchemy import create_engine
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -22,11 +23,17 @@ def get_hana_client():
         logger.info(f" 👤 HANA_USER = {user}")
         logger.info(f" 🧾 HANA_SCHEMA = {schema}")
 
+        # --- Encode password safely ---
+        encoded_password = urllib.parse.quote_plus(password)
+
         # --- Build connection string ---
-        connection_string = f"hana+hdbcli://{user}:{password}@{server_node}:{port}?currentSchema={schema}"
+        connection_string = (
+            f"hana+hdbcli://{user}:{encoded_password}@"
+            f"{server_node}:{port}?currentSchema={schema}"
+        )
 
         # --- Log connection string safely (hide password) ---
-        safe_connection_string = f"hana+hdbcli://{user}:********@{server_node}:{port}?currentSchema={schema}"
+        safe_connection_string = connection_string.replace(encoded_password, "********")
         logger.info(f"🔗 Final HANA connection string: {safe_connection_string}")
 
         # --- Create SQLAlchemy engine ---
