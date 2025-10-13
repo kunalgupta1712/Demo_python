@@ -1,28 +1,38 @@
 [
   {
-    "userID": "P1234567",
-    "firstName": "Kunal2",
-    "lastName": "Gupta2",
+    "userId": "P1234567",
+    "firstName": "Kunal",
+    "lastName": "Gupta",
     "displayName": "Kunal Gupta",
     "email": "kunal.gupta@example.com",
-    "phoneNumber": 9876543210,
+    "phoneNumber": "9876543210",
     "country": "IN",
-    "zip": 110076,
+    "zip": "110076",
     "userName": "kgupta",
     "status": "active",
-    "userType": "internal"
+    "userType": "internal",
+    "mailVerified": true,
+    "phoneVerified": false,
+    "created": "2025-10-13T09:00:00Z",
+    "lastModified": "2025-10-13T10:00:00Z",
+    "modifiedBy": "system"
   },
   {
-    "userID": "P9876543",
-    "firstName": "Riya2",
-    "lastName": "Sharma2",
+    "userId": "P9876543",
+    "firstName": "Riya",
+    "lastName": "Sharma",
     "displayName": "Riya Sharma",
     "email": "riya.sharma@example.com",
-    "phoneNumber": 9123456789,
+    "phoneNumber": "9123456789",
     "country": "IN",
-    "zip": 400001,
+    "zip": "400001",
     "userName": "rsharma",
     "status": "inactive",
-    "userType": "public"
+    "userType": "public",
+    "mailVerified": false,
+    "phoneVerified": true,
+    "created": "2025-10-12T14:30:00Z",
+    "lastModified": "2025-10-13T08:30:00Z",
+    "modifiedBy": "admin"
   }
 ]
