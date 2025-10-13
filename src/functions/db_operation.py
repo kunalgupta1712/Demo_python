@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 def insert_or_update_users_bulk(users: List[Dict[str, Any]]) -> Dict[str, int]:
     """
-    Insert or update users in bulk into the staging.PUser table.
+    Insert or update users in bulk into the staging_puser table.
     """
     schema = os.getenv("HANA_SCHEMA")
     if not schema:
@@ -45,13 +45,13 @@ def insert_or_update_users_bulk(users: List[Dict[str, Any]]) -> Dict[str, int]:
 
 def get_existing_users(connection, schema: str, user_ids: List[str]) -> List[str]:
     """
-    Return list of userIDs that already exist in staging.PUser.
+    Return list of userIDs that already exist in staging_puser.
     """
     if not user_ids:
         return []
 
     placeholders = ", ".join([f":id_{i}" for i in range(len(user_ids))])
-    query = f"SELECT userID FROM {schema}.PUSER WHERE userID IN ({placeholders})"
+    query = f"SELECT userID FROM {schema}.staging_puser WHERE userID IN ({placeholders})"
     params = {f"id_{i}": val for i, val in enumerate(user_ids)}
 
     result = connection.execute(text(query), params)
@@ -60,11 +60,11 @@ def get_existing_users(connection, schema: str, user_ids: List[str]) -> List[str
 
 def insert_users_bulk(connection, schema: str, users: List[Dict[str, Any]]):
     """
-    Insert new users into staging.PUser.
+    Insert new users into staging_puser.
     Auto-generates userUuid (UUID v4).
     """
     sql = f"""
-        INSERT INTO {schema}.PUSER (
+        INSERT INTO {schema}.staging_puser (
             userID, firstName, lastName, displayName, email, phoneNumber, country,
             zip, userUuid, userName, status, userType
         )
@@ -97,10 +97,10 @@ def insert_users_bulk(connection, schema: str, users: List[Dict[str, Any]]):
 
 def update_users_bulk(connection, schema: str, users: List[Dict[str, Any]]):
     """
-    Update existing users in staging.PUser.
+    Update existing users in staging_puser.
     """
     sql = f"""
-        UPDATE {schema}.PUSER
+        UPDATE {schema}.staging_puser
         SET firstName = :firstName,
             lastName = :lastName,
             displayName = :displayName,
