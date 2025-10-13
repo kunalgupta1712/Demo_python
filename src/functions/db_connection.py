@@ -1,49 +1,54 @@
 import os
+from typing import Any
 import logging
-import urllib.parse
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
+# Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def get_hana_client():
+
+def get_hana_client() -> Any:
+    """
+    Create and return a connection to SAP HANA database.
+
+    Returns:
+        SQLAlchemy engine object for HANA database connection
+
+    Raises:
+        Exception: If connection to HANA database fails
+    """
     try:
-        # --- Read environment variables ---
-        server_node = os.getenv("HANA_SERVER_NODE")
-        port = os.getenv("HANA_PORT", "443")
-        user = os.getenv("HANA_USER")
-        password = os.getenv("HANA_PASSWORD")
-        schema = os.getenv("HANA_SCHEMA")
+        # Get connection parameters from environment variables
+        server_node = os.environ.get("HANA_SERVER_NODE")
+        port = os.environ.get("HANA_PORT")
+        user = os.environ.get("HANA_USER")
+        password = os.environ.get("HANA_PASSWORD")
+        schema = os.environ.get("HANA_SCHEMA")
 
-        # --- Log env vars safely ---
-        logger.info("Environment variables for HANA connection:")
-        logger.info(f" 🌐 HANA_SERVER_NODE = {server_node}")
-        logger.info(f" 🔌 HANA_PORT = {port}")
-        logger.info(f" 👤 HANA_USER = {user}")
-        logger.info(f" 🧾 HANA_SCHEMA = {schema}")
+        if not all([server_node, port, user, password, schema]):
+            raise ValueError(
+                "Missing required environment variables for HANA connection"
+            )
 
-        # --- Encode password safely ---
-        encoded_password = urllib.parse.quote_plus(password)
+        # Create connection string for HANA
+        # Using sqlalchemy-hana dialect
+        connection_string = f"hana+hdbcli://{user}:{password}@{server_node}:{port}"
 
-        # --- Build connection string ---
-        connection_string = (
-            f"hana+hdbcli://{user}:{encoded_password}@"
-            f"{server_node}:{port}?currentSchema={schema}"
-        )
+        # Create engine
+        engine = create_engine(connection_string, connect_args={"encrypt": "true"})
 
-        # --- Log connection string safely (hide password) ---
-        safe_connection_string = connection_string.replace(encoded_password, "********")
-        logger.info(f"🔗 Final HANA connection string: {safe_connection_string}")
+        # Test connection
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1 FROM DUMMY"))
+            logger.info("Connected to SAP HANA Cloud.")
 
-        # --- Create SQLAlchemy engine ---
-        engine = create_engine(connection_string)
+        return engine
 
-        # --- Test connection ---
-        with engine.connect() as conn:
-            logger.info("✅ Successfully connected to SAP HANA")
-            return engine
-
-    except SQLAlchemyError as e:
-        logger.exception(f"❌ HANA Connection Error: {e}")
-        raise RuntimeError(f"HANA connection failed: {e}") from e
+    except SQLAlchemyError as err:
+        logger.error("HANA Connection Error: %s", err)
+        raise RuntimeError(f"HANA connection failed: {err}") from err
+    except Exception as err:
+        logger.error("Unexpected error during HANA connection: %s", err)
+        raise RuntimeError(f"HANA connection failed: {err}") from err
