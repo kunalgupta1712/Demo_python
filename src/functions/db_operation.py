@@ -2,8 +2,8 @@ import os
 import logging
 import uuid
 from typing import List, Dict, Any
+from sqlalchemy import text
 from db_connection import get_hana_client
-
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -54,7 +54,7 @@ def get_existing_users(connection, schema: str, user_ids: List[str]) -> List[str
     query = f"SELECT userID FROM {schema}.PUSER WHERE userID IN ({placeholders})"
     params = {f"id_{i}": val for i, val in enumerate(user_ids)}
 
-    result = connection.execute(query, params)
+    result = connection.execute(text(query), params)
     return [row[0] for row in result.fetchall()]
 
 
@@ -91,7 +91,7 @@ def insert_users_bulk(connection, schema: str, users: List[Dict[str, Any]]):
             "userType": u.get("userType")
         })
 
-    connection.execute(sql, batch)
+    connection.execute(text(sql), batch)
     logger.info(f"Inserted {len(users)} new users")
 
 
@@ -130,5 +130,5 @@ def update_users_bulk(connection, schema: str, users: List[Dict[str, Any]]):
             "userType": u.get("userType")
         })
 
-    connection.execute(sql, batch)
+    connection.execute(text(sql), batch)
     logger.info(f"Updated {len(users)} existing users")
