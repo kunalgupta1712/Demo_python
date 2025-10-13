@@ -12,40 +12,46 @@ type UserTypeEnum : String(8) enum {
 
 entity P_USERS {
     key userUuid     : UUID;
-        userId       : String(255) @assert.format: '^P[0-9]+$';
-        firstName    : String(255);
-        lastName     : String(255);
-        displayName  : String(255);
-        email        : String(255) @assert.format: '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$';
 
-        @cds.nullable: true
-        phoneNumber  : String(16);
+    @assert.unique
+    userId           : String(255) @assert.format: '^P[0-9]+$';
 
-        @cds.nullable: true
-        country      : String(255);
+    firstName        : String(255);
+    lastName         : String(255);
+    displayName      : String(255);
 
-        @cds.nullable: true
-        zip          : String(12);
+    @assert.unique
+    email            : String(255) @assert.format: '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$';
 
-        userName     : String(255);
+    @cds.nullable: true
+    phoneNumber      : String(16);
 
-        status       : StatusEnum;
-        userType     : UserTypeEnum;
+    @cds.nullable: true
+    country          : String(255);
 
-        @cds.nullable: true
-        mailVerified : Boolean;
+    @cds.nullable: true
+    zip              : String(12);
 
-        @cds.nullable: true
-        phoneVerified: Boolean;
+    @assert.unique
+    userName         : String(255);
 
-        @cds.nullable: true
-        created      : Timestamp;  
+    status           : StatusEnum;
+    userType         : UserTypeEnum;
 
-        @cds.nullable: true
-        lastModified : Timestamp;
+    @cds.nullable: true
+    mailVerified     : Boolean;
 
-        @cds.nullable: true
-        modifiedBy   : String(255);
+    @cds.nullable: true
+    phoneVerified    : Boolean;
+
+    @cds.nullable: true
+    created          : Timestamp;  
+
+    @cds.nullable: true
+    lastModified     : Timestamp;
+
+    @cds.nullable: true
+    modifiedBy       : String(255);
 }
 
 entity CRM_COMPANY_ACCOUNTS {
