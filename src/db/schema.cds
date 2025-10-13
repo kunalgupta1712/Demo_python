@@ -7,11 +7,10 @@ entity PUser {
       lastName    : String(254);
       displayName : String(254);
       email       : String(254);
-      phoneNumber : Integer;
+      phoneNumber : String(20);       // Changed from Integer to String
       country     : String(254);
-      zip         : Integer;
+      zip         : String(10);       // Changed from Integer to String
       userName    : String(254);
       status      : String(8);
       userType    : String(8);
 }
-
