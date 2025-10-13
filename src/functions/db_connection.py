@@ -27,13 +27,21 @@ def get_hana_client() -> Any:
         password = os.environ.get("HANA_PASSWORD")
         schema = os.environ.get("HANA_SCHEMA")
 
+        # Log environment variable values (masking sensitive info)
+        logger.info("Environment variables for HANA connection:")
+        logger.info("  HANA_SERVER_NODE = %s", server_node)
+        logger.info("  HANA_PORT        = %s", port)
+        logger.info("  HANA_USER        = %s", user)
+        logger.info("  HANA_PASSWORD    = %s", "********" if password else None)
+        logger.info("  HANA_SCHEMA      = %s", schema)
+
+        # Validate presence
         if not all([server_node, port, user, password, schema]):
             raise ValueError(
                 "Missing required environment variables for HANA connection"
             )
 
-        # Create connection string for HANA
-        # Using sqlalchemy-hana dialect
+        # Create connection string
         connection_string = f"hana+hdbcli://{user}:{password}@{server_node}:{port}"
 
         # Create engine
@@ -42,13 +50,13 @@ def get_hana_client() -> Any:
         # Test connection
         with engine.connect() as connection:
             connection.execute(text("SELECT 1 FROM DUMMY"))
-            logger.info("Connected to SAP HANA Cloud.")
+            logger.info("✅ Connected to SAP HANA Cloud successfully.")
 
         return engine
 
     except SQLAlchemyError as err:
-        logger.error("HANA Connection Error: %s", err)
+        logger.error("❌ HANA Connection Error: %s", err)
         raise RuntimeError(f"HANA connection failed: {err}") from err
     except Exception as err:
-        logger.error("Unexpected error during HANA connection: %s", err)
+        logger.error("❌ Unexpected error during HANA connection: %s", err)
         raise RuntimeError(f"HANA connection failed: {err}") from err
