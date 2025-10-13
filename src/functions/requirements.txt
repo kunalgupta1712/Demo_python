@@ -2,8 +2,9 @@ requests==2.31.0
 pytest==7.4.0
 pytest-cov==4.1.0
 python-dotenv==1.0.0
-pyhdb==0.3.4
+# pyhdb==0.3.4    # Not needed if using hdbcli
 sqlalchemy==2.0.20
 sqlalchemy-hana==1.0.0
+hdbcli>=2.15.20   # Add this for SAP HANA DB client
 cloudpickle==2.2.1
 black==25.1.0
