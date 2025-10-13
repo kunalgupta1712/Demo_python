@@ -7,13 +7,13 @@ def main(event, context):
     with open(json_file_path, 'r') as f:
         json_array = json.load(f)
 
-    # Filter users whose userID starts with 'P'
-    valid_users = [user for user in json_array if str(user.get("userID", "")).startswith("P")]
+    # Filter users whose userId starts with 'P'
+    valid_users = [user for user in json_array if str(user.get("userId", "")).startswith("P")]
 
     # Optionally, log or print skipped users
-    skipped_users = [user for user in json_array if not str(user.get("userID", "")).startswith("P")]
+    skipped_users = [user for user in json_array if not str(user.get("userId", "")).startswith("P")]
     if skipped_users:
-        print(f"Skipped users (invalid userID): {[user.get('userID') for user in skipped_users]}")
+        print(f"Skipped users (invalid userId): {[user.get('userId') for user in skipped_users]}")
 
     # Call the DB operation
     if valid_users:
