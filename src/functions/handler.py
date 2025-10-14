@@ -1,6 +1,6 @@
 import os
 import json
-from function.db_operation import insert_or_update_users_bulk
+from .db_operation import insert_or_update_users_bulk
 
 
 def main(event, context):
