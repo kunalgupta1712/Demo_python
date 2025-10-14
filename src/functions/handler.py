@@ -2,7 +2,7 @@ import os
 import json
 from db_operation import insert_or_update_users_bulk
 
-async def main(event, context):
+def main(event, context):
     json_file_path = os.path.join(os.path.dirname(__file__), 'data.json')
     with open(json_file_path, 'r') as f:
         json_array = json.load(f)
