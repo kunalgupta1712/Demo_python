@@ -7,6 +7,7 @@ from sqlalchemy.exc import SQLAlchemyError
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
 def get_hana_client():
     try:
         # Read environment variables
@@ -16,9 +17,19 @@ def get_hana_client():
         password = os.getenv("HANA_PASSWORD")
         schema = os.getenv("HANA_SCHEMA")
 
+        # Check if all required env vars are present
+        if not all([server_node, user, password, schema]):
+            raise ValueError("Required HANA environment variables are missing")
+
         # Basic log (do not expose password)
         logger.info("Initializing SAP HANA connection...")
-        logger.info(f"HANA_SERVER_NODE={server_node}, PORT={port}, USER={user}, SCHEMA={schema}")
+        logger.info(
+            "HANA_SERVER_NODE=%s, PORT=%s, USER=%s, SCHEMA=%s",
+            server_node,
+            port,
+            user,
+            schema,
+        )
 
         # Encode password
         encoded_password = urllib.parse.quote_plus(password)
@@ -33,10 +44,10 @@ def get_hana_client():
         engine = create_engine(connection_string)
 
         # Test connection
-        with engine.connect() as conn:
+        with engine.connect():
             logger.info("✅ Successfully connected to SAP HANA")
             return engine
 
     except SQLAlchemyError as e:
-        logger.exception(f"HANA Connection Error: {e}")
+        logger.exception("HANA Connection Error: %s", e)
         raise RuntimeError(f"HANA connection failed: {e}") from e
