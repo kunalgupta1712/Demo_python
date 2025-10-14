@@ -9,9 +9,12 @@ from db_connection import get_hana_client
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
 def insert_or_update_users_bulk(users: List[Dict[str, Any]]) -> Dict[str, int]:
     """
-    Insert or update users in bulk into the SPUSER_STAGING_P_USERS table.
+    Insert or update users into SPUSER_STAGING_P_USERS table.
+    Handles each user independently: errors for one user do not block others.
+    Returns a summary dict: inserted count, updated count, failed userIds.
     """
     schema = os.getenv("HANA_SCHEMA")
     if not schema:
@@ -19,28 +22,41 @@ def insert_or_update_users_bulk(users: List[Dict[str, Any]]) -> Dict[str, int]:
 
     engine = get_hana_client()
 
-    try:
-        with engine.begin() as connection:
-            # Fetch existing userIds
-            user_ids = [u["userId"] for u in users if "userId" in u]
-            existing = get_existing_users(connection, schema, user_ids)
+    inserted_count = 0
+    updated_count = 0
+    failed_users = []
 
-            # Split into new and existing users
-            new_users = [u for u in users if u["userId"] not in existing]
-            existing_users = [u for u in users if u["userId"] in existing]
+    with engine.begin() as connection:
+        for u in users:
+            user_id = u.get("userId")
+            if not user_id:
+                logger.warning("Skipping user with missing userId: %s", u)
+                failed_users.append({"user": u, "error": "Missing userId"})
+                continue
 
-            if new_users:
-                insert_users_bulk(connection, schema, new_users)
+            try:
+                # Check if user exists
+                existing = get_existing_users(connection, schema, [user_id])
+                if not existing:
+                    # Insert single user
+                    insert_users_bulk(connection, schema, [u])
+                    inserted_count += 1
+                else:
+                    # Update single user
+                    update_users_bulk(connection, schema, [u])
+                    updated_count += 1
 
-            if existing_users:
-                update_users_bulk(connection, schema, existing_users)
+            except Exception as e:
+                logger.exception("Failed to insert/update userId=%s: %s", user_id, e)
+                failed_users.append({"user": u, "error": str(e)})
 
-            logger.info(f"Inserted: {len(new_users)}, Updated: {len(existing_users)}")
-            return {"inserted": len(new_users), "updated": len(existing_users)}
-
-    except Exception as e:
-        logger.exception("Error in bulk insert/update")
-        raise e
+    logger.info("Insert/Update Summary: inserted=%d, updated=%d, failed=%d",
+                inserted_count, updated_count, len(failed_users))
+    return {
+        "inserted": inserted_count,
+        "updated": updated_count,
+        "failed": failed_users
+    }
 
 
 def get_existing_users(connection, schema: str, user_ids: List[str]) -> List[str]:
@@ -61,7 +77,7 @@ def get_existing_users(connection, schema: str, user_ids: List[str]) -> List[str
 def insert_users_bulk(connection, schema: str, users: List[Dict[str, Any]]):
     """
     Insert new users into SPUSER_STAGING_P_USERS.
-    Auto-generates userUuid (UUID v4).
+    Handles a list of users (usually one in the new per-user loop).
     """
     sql = f"""
         INSERT INTO {schema}.SPUSER_STAGING_P_USERS (
@@ -99,12 +115,13 @@ def insert_users_bulk(connection, schema: str, users: List[Dict[str, Any]]):
         })
 
     connection.execute(text(sql), batch)
-    logger.info(f"Inserted {len(users)} new users")
+    logger.info("Inserted %d user(s)", len(users))
 
 
 def update_users_bulk(connection, schema: str, users: List[Dict[str, Any]]):
     """
     Update existing users in SPUSER_STAGING_P_USERS.
+    Handles a list of users (usually one in the new per-user loop).
     """
     sql = f"""
         UPDATE {schema}.SPUSER_STAGING_P_USERS
@@ -146,4 +163,4 @@ def update_users_bulk(connection, schema: str, users: List[Dict[str, Any]]):
         })
 
     connection.execute(text(sql), batch)
-    logger.info(f"Updated {len(users)} existing users")
+    logger.info("Updated %d user(s)", len(users))
