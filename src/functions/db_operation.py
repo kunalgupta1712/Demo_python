@@ -3,7 +3,7 @@ import logging
 import uuid
 from typing import List, Dict, Any
 from sqlalchemy import text
-from .db_connection import get_hana_client
+from db_connection import get_hana_client
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
