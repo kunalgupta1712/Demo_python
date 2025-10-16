@@ -1,1 +1,28 @@
-
+[
+    {
+      "contactId": 101,
+      "accountId": 10,
+      "accountName": "NextGen Technologies Pvt Ltd",
+      "crmToErpFlag": true,
+      "firstName": "Ravi",
+      "lastName": "Kumar",
+      "cshmeFlag": true,
+      "email": "ravi.kumar@nextgen.com",
+      "department": "Engineering",
+      "country": "India",
+      "zipCode": "122018"
+    },
+    {
+      "contactId": 201,
+      "accountId": 20,
+      "accountName": "BlueWave Systems Ltd",
+      "crmToErpFlag": false,
+      "firstName": "Sophie",
+      "lastName": "Turner",
+      "cshmeFlag": false,
+      "email": "sophie.turner@bluewave.com",
+      "department": "Marketing",
+      "country": "UK",
+      "zipCode": "SW1A1AA"
+    }
+  ]
