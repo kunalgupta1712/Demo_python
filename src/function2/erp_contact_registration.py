@@ -35,7 +35,7 @@ def register_contact_as_erp(account_id: int, first_name: str, last_name: str,
     with engine.begin() as connection:
         # Get corresponding customerId from ERP_CUSTOMERS
         query = text(f"""
-            SELECT customerId FROM {schema}.ERP_CUSTOMERS
+            SELECT customerId FROM {schema}.SPUSER_STAGING_ERP_CUSTOMERS
             WHERE crmBpNo = :account_id
         """)
         result = connection.execute(query, {"account_id": account_id}).fetchone()
