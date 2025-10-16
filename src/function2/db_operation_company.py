@@ -40,7 +40,7 @@ def insert_or_update_company(companies: List[Dict[str, Any]]) -> Dict[str, int]:
             try:
                 # Check existing company
                 existing_query = text(
-                    f"SELECT crmToErpFlag FROM {schema}.CRM_COMPANY_ACCOUNTS "
+                    f"SELECT crmToErpFlag FROM {schema}.SPUSER_STAGING_CRM_COMPANY_ACCOUNTS "
                     f"WHERE accountId = :accountId"
                 )
                 result = connection.execute(existing_query, {"accountId": account_id}).fetchone()
@@ -48,7 +48,7 @@ def insert_or_update_company(companies: List[Dict[str, Any]]) -> Dict[str, int]:
                 if result:
                     existing_flag = result[0]
                     update_query = text(f"""
-                        UPDATE {schema}.CRM_COMPANY_ACCOUNTS
+                        UPDATE {schema}.SPUSER_STAGING_CRM_COMPANY_ACCOUNTS
                         SET accountName = :accountName,
                             crmToErpFlag = :crmToErpFlag
                         WHERE accountId = :accountId
@@ -69,7 +69,7 @@ def insert_or_update_company(companies: List[Dict[str, Any]]) -> Dict[str, int]:
 
                 else:
                     insert_query = text(f"""
-                        INSERT INTO {schema}.CRM_COMPANY_ACCOUNTS (
+                        INSERT INTO {schema}.SPUSER_STAGING_CRM_COMPANY_ACCOUNTS (
                             uuid, accountId, accountName, crmToErpFlag
                         )
                         VALUES (
