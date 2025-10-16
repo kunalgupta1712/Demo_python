@@ -27,7 +27,7 @@ def register_contact_as_erp(account_id: int, first_name: str, last_name: str,
         raise ValueError("HANA_SCHEMA environment variable is not set.")
 
     start = int(os.getenv("ERP_CONTACTPERSONID_START", 100000))
-    end = int(os.getenv("ERP_CONTACTPERSON_END", 999999))
+    end = int(os.getenv("ERP_CONTACTPERSONID_END", 999999))
     contact_person_id = str(random.randint(start, end))
 
     engine = get_hana_client()
