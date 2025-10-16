@@ -11,12 +11,15 @@ logging.basicConfig(level=logging.INFO)
 
 def register_contact_as_erp(account_id: int, first_name: str, last_name: str,
                             email: str, department=None, country=None,
-                            cshme_flag=None, phone_no=None, status=None):
+                            cshme_flag=None, phone_no=None, status=None,
+                            contact_id=None):
     """
-    Registers a CRM contact as an ERP customer contact.
+    Registers a CRM contact as an ERP customer contact and updates CRM_COMPANY_CONTACTS.erpContactPerson.
+    
     - Finds the corresponding customerId from ERP_CUSTOMERS via crmBpNo = accountId
     - Generates contactPersonId in defined range
     - Inserts into ERP_CUSTOMERS_CONTACTS
+    - Updates CRM_COMPANY_CONTACTS.erpContactPerson
     """
 
     schema = os.getenv("HANA_SCHEMA")
@@ -38,7 +41,9 @@ def register_contact_as_erp(account_id: int, first_name: str, last_name: str,
         result = connection.execute(query, {"account_id": account_id}).fetchone()
 
         if not result:
-            logger.warning("No ERP customer found for crmBpNo=%s, skipping contact registration", account_id)
+            logger.warning(
+                "No ERP customer found for crmBpNo=%s, skipping contact registration", account_id
+            )
             return None
 
         customer_id = result[0]
@@ -53,7 +58,7 @@ def register_contact_as_erp(account_id: int, first_name: str, last_name: str,
             VALUES (
                 :uuid, :contactPersonId, :customerId, :crmBpNo,
                 :firstName, :lastName, :email, :department, :country,
-                :cshmeFlag, :phoneNo, :status
+                :csmeFlag, :phoneNo, :status
             )
         """)
 
@@ -69,7 +74,7 @@ def register_contact_as_erp(account_id: int, first_name: str, last_name: str,
                 "email": email,
                 "department": department,
                 "country": country,
-                "cshmeFlag": cshme_flag,
+                "csmeFlag": cshme_flag,
                 "phoneNo": phone_no,
                 "status": status,
             }
@@ -79,5 +84,21 @@ def register_contact_as_erp(account_id: int, first_name: str, last_name: str,
             "Registered contact %s %s (accountId=%s) as ERP contactPersonId=%s",
             first_name, last_name, account_id, contact_person_id
         )
+
+        # --- Update CRM_COMPANY_CONTACTS.erpContactPerson ---
+        if contact_id:
+            update_query = text(f"""
+                UPDATE {schema}.CRM_COMPANY_CONTACTS
+                SET erpContactPerson = :contactPersonId
+                WHERE contactId = :contactId
+            """)
+            connection.execute(update_query, {
+                "contactPersonId": contact_person_id,
+                "contactId": contact_id,
+            })
+            logger.info(
+                "Updated CRM_COMPANY_CONTACTS.erpContactPerson for contactId=%s to %s",
+                contact_id, contact_person_id
+            )
 
     return contact_person_id
