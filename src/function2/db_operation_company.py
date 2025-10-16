@@ -13,7 +13,7 @@ logging.basicConfig(level=logging.INFO)
 def insert_or_update_company(companies: List[Dict[str, Any]]) -> Dict[str, int]:
     """
     Insert or update companies into CRM_COMPANY_ACCOUNTS table.
-    If crmToErpFlag is True (new or changed), register in ERP_CUSTOMERS.
+    If crmToErpFlag is True, register in ERP_CUSTOMERS and update erpNo.
     """
 
     schema = os.getenv("HANA_SCHEMA")
@@ -38,15 +38,16 @@ def insert_or_update_company(companies: List[Dict[str, Any]]) -> Dict[str, int]:
                 continue
 
             try:
-                # Check existing company
+                # Check if company already exists
                 existing_query = text(
-                    f"SELECT crmToErpFlag FROM {schema}.SPUSER_STAGING_CRM_COMPANY_ACCOUNTS "
+                    f"SELECT crmToErpFlag, erpNo FROM {schema}.SPUSER_STAGING_CRM_COMPANY_ACCOUNTS "
                     f"WHERE accountId = :accountId"
                 )
                 result = connection.execute(existing_query, {"accountId": account_id}).fetchone()
 
                 if result:
-                    existing_flag = result[0]
+                    existing_flag, existing_erp_no = result
+                    # Update company record
                     update_query = text(f"""
                         UPDATE {schema}.SPUSER_STAGING_CRM_COMPANY_ACCOUNTS
                         SET accountName = :accountName,
@@ -63,11 +64,21 @@ def insert_or_update_company(companies: List[Dict[str, Any]]) -> Dict[str, int]:
                     )
                     updated_count += 1
 
-                    # If flag changed from False → True, trigger registration
-                    if not existing_flag and crm_to_erp_flag:
-                        register_company_as_customer(account_id, account_name)
+                    # If flag is true and erpNo is missing, register in ERP_CUSTOMERS
+                    if crm_to_erp_flag and not existing_erp_no:
+                        customer_id = register_company_as_customer(account_id, account_name)
+                        update_erp_query = text(f"""
+                            UPDATE {schema}.SPUSER_STAGING_CRM_COMPANY_ACCOUNTS
+                            SET erpNo = :erpNo
+                            WHERE accountId = :accountId
+                        """)
+                        connection.execute(
+                            update_erp_query,
+                            {"erpNo": customer_id, "accountId": account_id},
+                        )
 
                 else:
+                    # Insert new company
                     insert_query = text(f"""
                         INSERT INTO {schema}.SPUSER_STAGING_CRM_COMPANY_ACCOUNTS (
                             uuid, accountId, accountName, crmToErpFlag
@@ -87,9 +98,18 @@ def insert_or_update_company(companies: List[Dict[str, Any]]) -> Dict[str, int]:
                     )
                     inserted_count += 1
 
-                    # If crmToErpFlag is True on insert → register
+                    # Register in ERP if crmToErpFlag is True
                     if crm_to_erp_flag:
-                        register_company_as_customer(account_id, account_name)
+                        customer_id = register_company_as_customer(account_id, account_name)
+                        update_erp_query = text(f"""
+                            UPDATE {schema}.SPUSER_STAGING_CRM_COMPANY_ACCOUNTS
+                            SET erpNo = :erpNo
+                            WHERE accountId = :accountId
+                        """)
+                        connection.execute(
+                            update_erp_query,
+                            {"erpNo": customer_id, "accountId": account_id},
+                        )
 
             except Exception as e:
                 logger.exception("Error processing company %s: %s", account_id, e)
