@@ -10,17 +10,14 @@ logging.basicConfig(level=logging.INFO)
 def generate_sequential_id(id_type: str, start_range: int, end_range: int) -> str:
     """
     Generate a sequential, unique ID for a given ID type (customerId/contactPersonId).
-
-    Steps:
     - Reads the max existing ID from the relevant table
     - Increments by 1 (starting from start_range if no rows exist)
     - Ensures the generated ID does not exceed the defined end_range
-    - Returns the next sequential numeric ID as a string
     """
 
     schema = os.getenv("HANA_SCHEMA")
     if not schema:
-        raise ValueError("HANA_SCHEMA environment variable is not set.")
+        raise ValueError("Environment variable HANA_SCHEMA is not set.")
 
     engine = get_hana_client()
 
@@ -35,12 +32,11 @@ def generate_sequential_id(id_type: str, start_range: int, end_range: int) -> st
         raise ValueError(f"Unsupported id_type: {id_type}")
 
     with engine.begin() as connection:
-        # Get the current max ID from the table
+        # Get max existing ID from the table
         query = text(f"SELECT MAX({column}) FROM {table}")
         result = connection.execute(query).fetchone()
         max_id = result[0]
 
-        # Determine next ID
         if max_id is None:
             next_id = start_range
         else:
@@ -50,15 +46,9 @@ def generate_sequential_id(id_type: str, start_range: int, end_range: int) -> st
                 logger.warning(f"Invalid {column} value found in {table}: {max_id}")
                 next_id = start_range
 
-        # Check range
+        # Check range validity
         if next_id > end_range:
             raise ValueError(f"{id_type} exceeded maximum range ({end_range})")
-
-        # Ensure uniqueness (defensive)
-        check_query = text(f"SELECT COUNT(*) FROM {table} WHERE {column} = :val")
-        count = connection.execute(check_query, {"val": str(next_id)}).scalar()
-        if count > 0:
-            raise ValueError(f"Generated {id_type} {next_id} already exists in {table}")
 
         logger.info(f"Generated new {id_type}: {next_id}")
         return str(next_id)
