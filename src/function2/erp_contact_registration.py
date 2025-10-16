@@ -50,7 +50,7 @@ def register_contact_as_erp(account_id: int, first_name: str, last_name: str,
 
         # Insert into ERP_CUSTOMERS_CONTACTS
         insert_query = text(f"""
-            INSERT INTO {schema}.ERP_CUSTOMERS_CONTACTS (
+            INSERT INTO {schema}.SPUSER_STAGING_ERP_CUSTOMERS_CONTACTS (
                 uuid, contactPersonId, customerId, crmBpNo,
                 firstName, lastName, email, department, country,
                 cshmeFlag, phoneNo, status
@@ -88,7 +88,7 @@ def register_contact_as_erp(account_id: int, first_name: str, last_name: str,
         # --- Update CRM_COMPANY_CONTACTS.erpContactPerson ---
         if contact_id:
             update_query = text(f"""
-                UPDATE {schema}.CRM_COMPANY_CONTACTS
+                UPDATE {schema}.SPUSER_STAGING_CRM_COMPANY_CONTACTS
                 SET erpContactPerson = :contactPersonId
                 WHERE contactId = :contactId
             """)
