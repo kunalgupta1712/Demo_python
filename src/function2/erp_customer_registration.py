@@ -14,7 +14,7 @@ def register_company_as_customer(account_id: int, account_name: str):
     Register a CRM company (account) as an ERP customer.
     - Generates a customerId in the defined range.
     - Inserts into ERP_CUSTOMERS table.
-    - Updates CRM_COMPANY_ACCOUNTS.erpNo with the new customerId.
+    - Returns the newly created customerId (without updating CRM_COMPANY_ACCOUNTS).
     """
 
     schema = os.getenv("HANA_SCHEMA")
@@ -45,7 +45,7 @@ def register_company_as_customer(account_id: int, account_name: str):
             )
             return existing[0]
 
-        # Insert new customer
+        # Insert new ERP customer record
         insert_query = text(f"""
             INSERT INTO {schema}.SPUSER_STAGING_ERP_CUSTOMERS (
                 uuid, customerId, name, crmBpNo
@@ -65,19 +65,11 @@ def register_company_as_customer(account_id: int, account_name: str):
             },
         )
 
-        # Update CRM_COMPANY_ACCOUNTS.erpNo
-        update_query = text(f"""
-            UPDATE {schema}.SPUSER_STAGING_CRM_COMPANY_ACCOUNTS
-            SET erpNo = :erpNo
-            WHERE accountId = :accountId
-        """)
-
-        connection.execute(update_query, {"erpNo": customer_id, "accountId": account_id})
-
         logger.info(
             "Registered company (accountId=%s) as ERP customerId=%s",
             account_id,
             customer_id,
         )
 
+    # Return the generated customerId
     return customer_id
