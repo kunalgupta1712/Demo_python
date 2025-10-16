@@ -13,7 +13,7 @@ def generate_sequential_id(id_type: str, start_range: int, end_range: int) -> st
     It:
     - Reads the max existing ID from the relevant table
     - Increments by 1 (starting from start_range if no rows exist)
-    - Pads with 3 leading zeros
+    - Pads with leading zeros (3 for customerId, 2 for contactPersonId)
     - Ensures the generated ID does not exceed the defined end_range
     """
 
@@ -27,9 +27,11 @@ def generate_sequential_id(id_type: str, start_range: int, end_range: int) -> st
     if id_type == "customerId":
         table = f"{schema}.SPUSER_STAGING_ERP_CUSTOMERS"
         column = "customerId"
+        zero_padding = 3
     elif id_type == "contactPersonId":
         table = f"{schema}.SPUSER_STAGING_ERP_CUSTOMERS_CONTACTS"
         column = "contactPersonId"
+        zero_padding = 2
     else:
         raise ValueError(f"Unsupported id_type: {id_type}")
 
@@ -59,8 +61,8 @@ def generate_sequential_id(id_type: str, start_range: int, end_range: int) -> st
         if count > 0:
             raise ValueError(f"Generated {id_type} {next_id} already exists in {table}")
 
-        # Format with 3 leading zeros
-        formatted_id = f"000{next_id:07d}"  # Example: 0001000000
-        logger.info(f"Generated new {id_type}: {formatted_id}")
+        # Format with leading zeros
+        formatted_id = f"{'0' * zero_padding}{next_id:07d}"
 
+        logger.info(f"Generated new {id_type}: {formatted_id}")
         return formatted_id
