@@ -7,6 +7,6 @@
     {
       "accountId": 20,
       "accountName": "BlueWave Systems Ltd",
-      "crmToErpFlag": false
+      "crmToErpFlag": true
     }
   ]
