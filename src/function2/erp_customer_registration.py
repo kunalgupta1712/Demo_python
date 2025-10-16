@@ -32,7 +32,7 @@ def register_company_as_customer(account_id: int, account_name: str):
     with engine.begin() as connection:
         # Check if already exists
         existing_query = text(
-            f"SELECT customerId FROM {schema}.ERP_CUSTOMERS "
+            f"SELECT customerId FROM {schema}.SPUSER_STAGING_ERP_CUSTOMERS "
             f"WHERE crmBpNo = :account_id"
         )
         existing = connection.execute(existing_query, {"account_id": account_id}).fetchone()
@@ -47,7 +47,7 @@ def register_company_as_customer(account_id: int, account_name: str):
 
         # Insert new customer
         insert_query = text(f"""
-            INSERT INTO {schema}.ERP_CUSTOMERS (
+            INSERT INTO {schema}.SPUSER_STAGING_ERP_CUSTOMERS (
                 uuid, customerId, name, crmBpNo
             )
             VALUES (
@@ -67,7 +67,7 @@ def register_company_as_customer(account_id: int, account_name: str):
 
         # Update CRM_COMPANY_ACCOUNTS.erpNo
         update_query = text(f"""
-            UPDATE {schema}.CRM_COMPANY_ACCOUNTS
+            UPDATE {schema}.SPUSER_STAGING_CRM_COMPANY_ACCOUNTS
             SET erpNo = :erpNo
             WHERE accountId = :accountId
         """)
