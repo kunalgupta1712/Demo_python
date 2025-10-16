@@ -39,7 +39,7 @@ def insert_or_update_contact(contacts: List[Dict[str, Any]]) -> Dict[str, int]:
             try:
                 # Check if contact exists
                 existing_query = text(f"""
-                    SELECT crmToErpFlag FROM {schema}.CRM_COMPANY_CONTACTS
+                    SELECT crmToErpFlag FROM {schema}.SPUSER_STAGING_CRM_COMPANY_CONTACTS
                     WHERE contactId = :contactId
                 """)
                 result = connection.execute(existing_query, {"contactId": contact_id}).fetchone()
@@ -47,7 +47,7 @@ def insert_or_update_contact(contacts: List[Dict[str, Any]]) -> Dict[str, int]:
                 if result:
                     existing_flag = result[0]
                     update_query = text(f"""
-                        UPDATE {schema}.CRM_COMPANY_CONTACTS
+                        UPDATE {schema}.SPUSER_STAGING_CRM_COMPANY_CONTACTS
                         SET accountName = :accountName,
                             crmToErpFlag = :crmToErpFlag,
                             firstName = :firstName,
@@ -90,7 +90,7 @@ def insert_or_update_contact(contacts: List[Dict[str, Any]]) -> Dict[str, int]:
 
                 else:
                     insert_query = text(f"""
-                        INSERT INTO {schema}.CRM_COMPANY_CONTACTS (
+                        INSERT INTO {schema}.SPUSER_STAGING_CRM_COMPANY_CONTACTS (
                             uuid, contactId, accountId, accountName, crmToErpFlag,
                             firstName, lastName, email, department, country, cshmeFlag, zipCode
                         )
