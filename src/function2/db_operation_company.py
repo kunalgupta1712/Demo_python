@@ -1,18 +1,21 @@
 import os
-import logging
 import uuid
+import logging
 from typing import List, Dict, Any
 from sqlalchemy import text
 from db_connection import get_hana_client
+from erp_customer_registration import register_company_as_customer
 
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
 
 
-def insert_or_update_company(
-    companies: List[Dict[str, Any]]
-) -> Dict[str, Any]:
-    """Insert or update records in CRM_COMPANY_ACCOUNTS table."""
+def insert_or_update_company(companies: List[Dict[str, Any]]) -> Dict[str, int]:
+    """
+    Insert or update companies into CRM_COMPANY_ACCOUNTS table.
+    If crmToErpFlag is True (new or changed), register in ERP_CUSTOMERS.
+    """
+
     schema = os.getenv("HANA_SCHEMA")
     if not schema:
         raise ValueError("Environment variable HANA_SCHEMA is not set.")
@@ -21,109 +24,84 @@ def insert_or_update_company(
 
     inserted_count = 0
     updated_count = 0
-    failed_records = []
+    failed = []
 
     with engine.begin() as connection:
         for company in companies:
             account_id = company.get("accountId")
-            if not account_id:
-                logger.warning(
-                    "Skipping record with missing accountId: %s", company
-                )
-                failed_records.append(
-                    {"record": company, "error": "Missing accountId"}
-                )
+            account_name = company.get("accountName")
+            crm_to_erp_flag = company.get("crmToErpFlag")
+
+            if not account_id or not account_name:
+                logger.warning("Skipping invalid company entry: %s", company)
+                failed.append({"company": company, "error": "Missing mandatory fields"})
                 continue
 
             try:
-                existing = get_existing_accounts(
-                    connection, schema, [account_id]
+                # Check existing company
+                existing_query = text(
+                    f"SELECT crmToErpFlag FROM {schema}.CRM_COMPANY_ACCOUNTS "
+                    f"WHERE accountId = :accountId"
                 )
-                if not existing:
-                    insert_company(connection, schema, [company])
-                    inserted_count += 1
-                else:
-                    update_company(connection, schema, [company])
+                result = connection.execute(existing_query, {"accountId": account_id}).fetchone()
+
+                if result:
+                    existing_flag = result[0]
+                    update_query = text(f"""
+                        UPDATE {schema}.CRM_COMPANY_ACCOUNTS
+                        SET accountName = :accountName,
+                            crmToErpFlag = :crmToErpFlag
+                        WHERE accountId = :accountId
+                    """)
+                    connection.execute(
+                        update_query,
+                        {
+                            "accountName": account_name,
+                            "crmToErpFlag": crm_to_erp_flag,
+                            "accountId": account_id,
+                        },
+                    )
                     updated_count += 1
+
+                    # If flag changed from False → True, trigger registration
+                    if not existing_flag and crm_to_erp_flag:
+                        register_company_as_customer(account_id, account_name)
+
+                else:
+                    insert_query = text(f"""
+                        INSERT INTO {schema}.CRM_COMPANY_ACCOUNTS (
+                            uuid, accountId, accountName, crmToErpFlag
+                        )
+                        VALUES (
+                            :uuid, :accountId, :accountName, :crmToErpFlag
+                        )
+                    """)
+                    connection.execute(
+                        insert_query,
+                        {
+                            "uuid": str(uuid.uuid4()),
+                            "accountId": account_id,
+                            "accountName": account_name,
+                            "crmToErpFlag": crm_to_erp_flag,
+                        },
+                    )
+                    inserted_count += 1
+
+                    # If crmToErpFlag is True on insert → register
+                    if crm_to_erp_flag:
+                        register_company_as_customer(account_id, account_name)
+
             except Exception as e:
-                logger.exception(
-                    "Failed to insert/update accountId=%s: %s",
-                    account_id,
-                    e,
-                )
-                failed_records.append(
-                    {"record": company, "error": str(e)}
-                )
+                logger.exception("Error processing company %s: %s", account_id, e)
+                failed.append({"company": company, "error": str(e)})
 
     logger.info(
-        "Company Summary: inserted=%d, updated=%d, failed=%d",
-        inserted_count,
-        updated_count,
-        len(failed_records),
+        "Summary: inserted=%d, updated=%d, failed=%d",
+        inserted_count, updated_count, len(failed)
     )
+
     return {
         "inserted": inserted_count,
         "updated": updated_count,
-        "failed": failed_records,
+        "failed": failed,
     }
-
-
-def get_existing_accounts(connection, schema: str, account_ids: List[int]):
-    """Return list of existing accountIds."""
-    if not account_ids:
-        return []
-
-    placeholders = ", ".join([f":id_{i}" for i in range(len(account_ids))])
-    query = (
-        f"SELECT accountId FROM {schema}.CRM_COMPANY_ACCOUNTS "
-        f"WHERE accountId IN ({placeholders})"
-    )
-    params = {f"id_{i}": val for i, val in enumerate(account_ids)}
-    result = connection.execute(text(query), params)
-    return [row[0] for row in result.fetchall()]
-
-
-def insert_company(connection, schema: str, companies: List[Dict[str, Any]]):
-    """Insert new company records."""
-    sql = f"""
-        INSERT INTO {schema}.CRM_COMPANY_ACCOUNTS (
-            uuid, accountId, accountName, crmToErpFlag
-        )
-        VALUES (:uuid, :accountId, :accountName, :crmToErpFlag)
-    """
-
-    batch = [
-        {
-            "uuid": str(uuid.uuid4()),
-            "accountId": c.get("accountId"),
-            "accountName": c.get("accountName"),
-            "crmToErpFlag": c.get("crmToErpFlag"),
-        }
-        for c in companies
-    ]
-
-    connection.execute(text(sql), batch)
-    logger.info("Inserted %d company record(s)", len(companies))
-
-
-def update_company(connection, schema: str, companies: List[Dict[str, Any]]):
-    """Update existing company records."""
-    sql = f"""
-        UPDATE {schema}.CRM_COMPANY_ACCOUNTS
-        SET accountName = :accountName,
-            crmToErpFlag = :crmToErpFlag
-        WHERE accountId = :accountId
-    """
-
-    batch = [
-        {
-            "accountId": c.get("accountId"),
-            "accountName": c.get("accountName"),
-            "crmToErpFlag": c.get("crmToErpFlag"),
-        }
-        for c in companies
-    ]
-
-    connection.execute(text(sql), batch)
-    logger.info("Updated %d company record(s)", len(companies))
-
