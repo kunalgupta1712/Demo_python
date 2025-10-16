@@ -13,7 +13,7 @@ logging.basicConfig(level=logging.INFO)
 def insert_or_update_contact(contacts: List[Dict[str, Any]]) -> Dict[str, int]:
     """
     Insert or update contacts in CRM_COMPANY_CONTACTS table.
-    If crmToErpFlag=True (new or changed), register contact in ERP_CUSTOMERS_CONTACTS.
+    If crmToErpFlag=True, register contact in ERP_CUSTOMERS_CONTACTS and update erpContactPerson.
     """
 
     schema = os.getenv("HANA_SCHEMA")
@@ -37,15 +37,17 @@ def insert_or_update_contact(contacts: List[Dict[str, Any]]) -> Dict[str, int]:
                 continue
 
             try:
-                # Check if contact exists
+                # Check existing contact
                 existing_query = text(f"""
-                    SELECT crmToErpFlag FROM {schema}.SPUSER_STAGING_CRM_COMPANY_CONTACTS
+                    SELECT crmToErpFlag, erpContactPerson 
+                    FROM {schema}.SPUSER_STAGING_CRM_COMPANY_CONTACTS
                     WHERE contactId = :contactId
                 """)
                 result = connection.execute(existing_query, {"contactId": contact_id}).fetchone()
 
                 if result:
-                    existing_flag = result[0]
+                    existing_flag, existing_erp_contact = result
+                    # Update existing record
                     update_query = text(f"""
                         UPDATE {schema}.SPUSER_STAGING_CRM_COMPANY_CONTACTS
                         SET accountName = :accountName,
@@ -76,9 +78,9 @@ def insert_or_update_contact(contacts: List[Dict[str, Any]]) -> Dict[str, int]:
                     )
                     updated_count += 1
 
-                    # Flag changed from False → True
-                    if not existing_flag and crm_to_erp_flag:
-                        register_contact_as_erp(
+                    # Register in ERP if required
+                    if crm_to_erp_flag and not existing_erp_contact:
+                        contact_person_id = register_contact_as_erp(
                             account_id,
                             contact.get("firstName"),
                             contact.get("lastName"),
@@ -88,7 +90,27 @@ def insert_or_update_contact(contacts: List[Dict[str, Any]]) -> Dict[str, int]:
                             cshme_flag=contact.get("cshmeFlag"),
                         )
 
+                        # Update CRM_COMPANY_CONTACTS.erpContactPerson
+                        if contact_person_id:
+                            update_erp_contact = text(f"""
+                                UPDATE {schema}.SPUSER_STAGING_CRM_COMPANY_CONTACTS
+                                SET erpContactPerson = :erpContactPerson
+                                WHERE contactId = :contactId
+                            """)
+                            connection.execute(
+                                update_erp_contact,
+                                {
+                                    "erpContactPerson": contact_person_id,
+                                    "contactId": contact_id,
+                                }
+                            )
+                            logger.info(
+                                "Updated erpContactPerson=%s for contactId=%s",
+                                contact_person_id, contact_id
+                            )
+
                 else:
+                    # Insert new contact
                     insert_query = text(f"""
                         INSERT INTO {schema}.SPUSER_STAGING_CRM_COMPANY_CONTACTS (
                             uuid, contactId, accountId, accountName, crmToErpFlag,
@@ -118,9 +140,9 @@ def insert_or_update_contact(contacts: List[Dict[str, Any]]) -> Dict[str, int]:
                     )
                     inserted_count += 1
 
-                    # crmToErpFlag is True → register contact
+                    # Register and update erpContactPerson
                     if crm_to_erp_flag:
-                        register_contact_as_erp(
+                        contact_person_id = register_contact_as_erp(
                             account_id,
                             contact.get("firstName"),
                             contact.get("lastName"),
@@ -129,6 +151,24 @@ def insert_or_update_contact(contacts: List[Dict[str, Any]]) -> Dict[str, int]:
                             country=contact.get("country"),
                             cshme_flag=contact.get("cshmeFlag"),
                         )
+
+                        if contact_person_id:
+                            update_erp_contact = text(f"""
+                                UPDATE {schema}.SPUSER_STAGING_CRM_COMPANY_CONTACTS
+                                SET erpContactPerson = :erpContactPerson
+                                WHERE contactId = :contactId
+                            """)
+                            connection.execute(
+                                update_erp_contact,
+                                {
+                                    "erpContactPerson": contact_person_id,
+                                    "contactId": contact_id,
+                                }
+                            )
+                            logger.info(
+                                "Updated erpContactPerson=%s for contactId=%s",
+                                contact_person_id, contact_id
+                            )
 
             except Exception as e:
                 logger.exception("Error processing contact %s: %s", contact_id, e)
