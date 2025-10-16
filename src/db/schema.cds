@@ -69,9 +69,12 @@ entity CRM_COMPANY_CONTACTS {
   key uuid            : UUID;
       contactId       : Integer not null;
       accountId       : Integer not null;
+      accountName     : String(255);
+      crmToErpFlag    : Boolean;
       erpContactPerson: String(255);
       firstName       : String(255);
       lastName        : String(255);
+      cshmeFlag       : Boolean;
       email           : String(255) @assert.format: '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$';
 
       @cds.nullable: true
@@ -97,6 +100,7 @@ entity ERP_CUSTOMERS_CONTACTS {
   key uuid            : UUID;
       contactPersonId : String(255);
       customerId      : String(255);
+      crmBpNo         : Integer not null;
       firstName       : String(255);
       lastName        : String(255);
       email           : String(255) @assert.format: '^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$';
