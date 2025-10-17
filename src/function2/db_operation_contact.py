@@ -12,7 +12,7 @@ logging.basicConfig(level=logging.INFO)
 
 def insert_or_update_contact(contacts: List[Dict[str, Any]]) -> Dict[str, int]:
     """
-    Insert or update contacts in CRM_COMPANY_CONTACTS table.
+    Insert or update contacts in SPUSER_STAGING_CRM_COMPANY_CONTACTS table.
     If crmToErpFlag=True, register contact in ERP_CUSTOMERS_CONTACTS and update erpContactPerson.
     """
 
@@ -58,7 +58,9 @@ def insert_or_update_contact(contacts: List[Dict[str, Any]]) -> Dict[str, int]:
                             department = :department,
                             country = :country,
                             cshmeFlag = :cshmeFlag,
-                            zipCode = :zipCode
+                            zipCode = :zipCode,
+                            phoneNo = :phoneNo,
+                            status = :status
                         WHERE contactId = :contactId
                     """)
                     connection.execute(
@@ -73,6 +75,8 @@ def insert_or_update_contact(contacts: List[Dict[str, Any]]) -> Dict[str, int]:
                             "country": contact.get("country"),
                             "cshmeFlag": contact.get("cshmeFlag"),
                             "zipCode": contact.get("zipCode"),
+                            "phoneNo": contact.get("phoneNo"),
+                            "status": contact.get("status"),
                             "contactId": contact_id,
                         }
                     )
@@ -88,9 +92,10 @@ def insert_or_update_contact(contacts: List[Dict[str, Any]]) -> Dict[str, int]:
                             department=contact.get("department"),
                             country=contact.get("country"),
                             cshme_flag=contact.get("cshmeFlag"),
+                            phone_no=contact.get("phoneNo"),
+                            status=contact.get("status"),
                         )
 
-                        # Update CRM_COMPANY_CONTACTS.erpContactPerson
                         if contact_person_id:
                             update_erp_contact = text(f"""
                                 UPDATE {schema}.SPUSER_STAGING_CRM_COMPANY_CONTACTS
@@ -114,11 +119,13 @@ def insert_or_update_contact(contacts: List[Dict[str, Any]]) -> Dict[str, int]:
                     insert_query = text(f"""
                         INSERT INTO {schema}.SPUSER_STAGING_CRM_COMPANY_CONTACTS (
                             uuid, contactId, accountId, accountName, crmToErpFlag,
-                            firstName, lastName, email, department, country, cshmeFlag, zipCode
+                            firstName, lastName, email, department, country, 
+                            cshmeFlag, zipCode, phoneNo, status
                         )
                         VALUES (
                             :uuid, :contactId, :accountId, :accountName, :crmToErpFlag,
-                            :firstName, :lastName, :email, :department, :country, :cshmeFlag, :zipCode
+                            :firstName, :lastName, :email, :department, :country, 
+                            :cshmeFlag, :zipCode, :phoneNo, :status
                         )
                     """)
                     connection.execute(
@@ -136,6 +143,8 @@ def insert_or_update_contact(contacts: List[Dict[str, Any]]) -> Dict[str, int]:
                             "country": contact.get("country"),
                             "cshmeFlag": contact.get("cshmeFlag"),
                             "zipCode": contact.get("zipCode"),
+                            "phoneNo": contact.get("phoneNo"),
+                            "status": contact.get("status"),
                         }
                     )
                     inserted_count += 1
@@ -150,6 +159,8 @@ def insert_or_update_contact(contacts: List[Dict[str, Any]]) -> Dict[str, int]:
                             department=contact.get("department"),
                             country=contact.get("country"),
                             cshme_flag=contact.get("cshmeFlag"),
+                            phone_no=contact.get("phoneNo"),
+                            status=contact.get("status"),
                         )
 
                         if contact_person_id:
