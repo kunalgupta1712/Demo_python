@@ -1,10 +1,9 @@
 import os
 import uuid
 import logging
-from datetime import datetime
 from sqlalchemy import text
 from db_connection import get_hana_client
-from id_generation import generate_sequential_id
+from id_generation import generate_sequential_id  # 👈 Import the new ID generator
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -12,16 +11,12 @@ logging.basicConfig(level=logging.INFO)
 
 def register_company_as_customer(account_id: int, account_name: str):
     """
-    Registers a CRM company (account) as an ERP customer.
+    Register a CRM company (account) as an ERP customer.
 
     - Generates a sequential customerId within the defined range.
-    - Inserts or updates record in ERP_CUSTOMERS table.
-    - Sets createdAt and lastModified timestamps:
-        * createdAt → when the record is first inserted.
-        * lastModified → updates each time record is modified.
-    - Returns the ERP customerId.
+    - Inserts into ERP_CUSTOMERS table.
+    - Returns the newly created customerId (without updating CRM_COMPANY_ACCOUNTS).
     """
-
     schema = os.getenv("HANA_SCHEMA")
     if not schema:
         raise ValueError("Environment variable HANA_SCHEMA is not set.")
@@ -29,7 +24,7 @@ def register_company_as_customer(account_id: int, account_name: str):
     start = int(os.getenv("ERP_CUSTOMERID_START", 1000000))
     end = int(os.getenv("ERP_CUSTOMERID_END", 9999999))
 
-    # 🔹 Generate sequential unique customerId
+    # 🔹 Generate a sequential unique customerId using the helper service
     customer_id = generate_sequential_id(
         id_type="customerId",
         start_range=start,
@@ -37,55 +32,33 @@ def register_company_as_customer(account_id: int, account_name: str):
     )
 
     engine = get_hana_client()
-    now_utc = datetime.utcnow()
-
     with engine.begin() as connection:
-        # 🔹 Check if this account already has a registered ERP customer
-        existing_query = text(f"""
-            SELECT customerId, createdAt
+        # Check if this account already has a registered ERP customer
+        existing_query = text(
+            f"""
+            SELECT customerId 
             FROM {schema}.SPUSER_STAGING_ERP_CUSTOMERS
             WHERE crmBpNo = :account_id
-        """)
+            """
+        )
         existing = connection.execute(existing_query, {"account_id": account_id}).fetchone()
 
         if existing:
-            # 🔄 Update existing record (preserve createdAt, update lastModified)
-            existing_customer_id, created_at = existing
-
-            update_query = text(f"""
-                UPDATE {schema}.SPUSER_STAGING_ERP_CUSTOMERS
-                SET
-                    name = :name,
-                    lastModified = :lastModified
-                WHERE crmBpNo = :crmBpNo
-            """)
-
-            connection.execute(
-                update_query,
-                {
-                    "name": account_name,
-                    "lastModified": now_utc,
-                    "crmBpNo": account_id
-                }
-            )
-
             logger.info(
-                "🔁 Updated ERP customer: accountId=%s → customerId=%s (lastModified=%s)",
+                "Company with accountId=%s already registered as customerId=%s",
                 account_id,
-                existing_customer_id,
-                now_utc,
+                existing[0],
             )
-            return existing_customer_id
+            return existing[0]
 
-        # 🆕 Insert new ERP customer record (with createdAt and lastModified)
-        insert_query = text(f"""
-            INSERT INTO {schema}.SPUSER_STAGING_ERP_CUSTOMERS (
-                uuid, customerId, name, crmBpNo, createdAt, lastModified
-            )
-            VALUES (
-                :uuid, :customerId, :name, :crmBpNo, :createdAt, :lastModified
-            )
-        """)
+        # Insert new ERP customer record
+        insert_query = text(
+            f"""
+            INSERT INTO {schema}.SPUSER_STAGING_ERP_CUSTOMERS
+            (uuid, customerId, name, crmBpNo)
+            VALUES (:uuid, :customerId, :name, :crmBpNo)
+            """
+        )
 
         connection.execute(
             insert_query,
@@ -94,16 +67,13 @@ def register_company_as_customer(account_id: int, account_name: str):
                 "customerId": customer_id,
                 "name": account_name,
                 "crmBpNo": account_id,
-                "createdAt": now_utc,
-                "lastModified": now_utc,
             },
         )
 
         logger.info(
-            "✅ Registered new company: accountId=%s → customerId=%s (createdAt=%s)",
+            "Registered company (accountId=%s) as ERP customerId=%s",
             account_id,
             customer_id,
-            now_utc,
         )
 
     return customer_id
