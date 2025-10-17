@@ -12,7 +12,7 @@
      {
       "accountId": 30,
       "accountName": "TATA Systems Pvt Ltd",
-      "crmToErpFlag": true
+      "crmToErpFlag": false
     } 
   
   ]
