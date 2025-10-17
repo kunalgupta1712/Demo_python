@@ -26,26 +26,16 @@ def register_contact_as_erp(
     Registers a CRM contact as an ERP customer contact.
 
     - Finds the corresponding customerId from ERP_CUSTOMERS via crmBpNo = accountId
-    - Generates sequential contactPersonId within defined range
+    - Generates sequential contactPersonId only for new records
     - Inserts into ERP_CUSTOMERS_CONTACTS (with createdAt & lastModified timestamps)
+    - Updates existing records without generating a new ID
     - Logs if cshme_flag is True (or changed from False/None to True) AND status='active'
     - Returns the contactPersonId
     """
 
     schema = os.getenv("HANA_SCHEMA")
     if not schema:
-        raise ValueError("Environment variable HANA_SCHEMA is not set.")
-
-    # 🔹 Get number range from environment variables (with fallback)
-    start = int(os.getenv("ERP_CONTACTPERSONID_START", 2000000))
-    end = int(os.getenv("ERP_CONTACTPERSONID_END", 2999999))
-
-    # 🔹 Generate sequential unique contactPersonId
-    contact_person_id = generate_sequential_id(
-        id_type="contactPersonId",
-        start_range=start,
-        end_range=end
-    )
+        raise ValueError("HANA_SCHEMA environment variable is not set.")
 
     engine = get_hana_client()
     now_utc = datetime.utcnow()
@@ -68,48 +58,78 @@ def register_contact_as_erp(
 
         customer_id = result[0]
 
-        # 🔹 Check if contact already exists (for cshme_flag change detection)
+        # 🔹 Check if contact already exists
         existing_query = text(f"""
-            SELECT cshmeFlag, createdAt 
+            SELECT contactPersonId, cshmeFlag, firstName, lastName, department, country, phoneNo, status, createdAt
             FROM {schema}.SPUSER_STAGING_ERP_CUSTOMERS_CONTACTS
             WHERE crmBpNo = :account_id AND email = :email
         """)
         existing = connection.execute(existing_query, {"account_id": account_id, "email": email}).fetchone()
 
         if existing:
-            # 🔄 Update existing record (preserve createdAt, update lastModified)
-            previous_flag, created_at = existing
-            update_query = text(f"""
-                UPDATE {schema}.SPUSER_STAGING_ERP_CUSTOMERS_CONTACTS
-                SET
-                    firstName = :firstName,
-                    lastName = :lastName,
-                    department = :department,
-                    country = :country,
-                    cshmeFlag = :cshmeFlag,
-                    phoneNo = :phoneNo,
-                    status = :status,
-                    lastModified = :lastModified
-                WHERE crmBpNo = :crmBpNo AND email = :email
-            """)
-            connection.execute(
-                update_query,
-                {
-                    "firstName": first_name,
-                    "lastName": last_name,
-                    "department": department,
-                    "country": country,
-                    "cshmeFlag": cshme_flag,
-                    "phoneNo": phone_no,
-                    "status": status,
-                    "lastModified": now_utc,
-                    "crmBpNo": account_id,
-                    "email": email
-                },
+            # 🔄 Update existing record if any field has changed
+            contact_person_id, previous_flag, prev_first, prev_last, prev_dept, prev_country, prev_phone, prev_status, created_at = existing
+
+            # Check if there is any actual change
+            changes = (
+                first_name != prev_first or
+                last_name != prev_last or
+                department != prev_dept or
+                country != prev_country or
+                cshme_flag != previous_flag or
+                phone_no != prev_phone or
+                status != prev_status
             )
+
+            if changes:
+                update_query = text(f"""
+                    UPDATE {schema}.SPUSER_STAGING_ERP_CUSTOMERS_CONTACTS
+                    SET firstName = :firstName,
+                        lastName = :lastName,
+                        department = :department,
+                        country = :country,
+                        cshmeFlag = :cshmeFlag,
+                        phoneNo = :phoneNo,
+                        status = :status,
+                        lastModified = :lastModified
+                    WHERE crmBpNo = :crmBpNo AND email = :email
+                """)
+                connection.execute(
+                    update_query,
+                    {
+                        "firstName": first_name,
+                        "lastName": last_name,
+                        "department": department,
+                        "country": country,
+                        "cshmeFlag": cshme_flag,
+                        "phoneNo": phone_no,
+                        "status": status,
+                        "lastModified": now_utc,
+                        "crmBpNo": account_id,
+                        "email": email
+                    },
+                )
+                logger.info(
+                    "🔁 Updated ERP contact: %s %s (Account=%s → ContactID=%s)",
+                    first_name, last_name, account_id, contact_person_id
+                )
+            else:
+                logger.info(
+                    "ℹ️ No change detected for ERP contact: %s %s (Account=%s → ContactID=%s)",
+                    first_name, last_name, account_id, contact_person_id
+                )
+
         else:
-            # 🆕 Insert new record (set createdAt and lastModified)
-            previous_flag = None
+            # 🆕 Insert new record → generate contactPersonId now
+            start = int(os.getenv("ERP_CONTACTPERSONID_START", 2000000))
+            end = int(os.getenv("ERP_CONTACTPERSONID_END", 2999999))
+
+            contact_person_id = generate_sequential_id(
+                id_type="contactPersonId",
+                start_range=start,
+                end_range=end
+            )
+
             insert_query = text(f"""
                 INSERT INTO {schema}.SPUSER_STAGING_ERP_CUSTOMERS_CONTACTS (
                     uuid, contactPersonId, customerId, crmBpNo,
@@ -122,7 +142,6 @@ def register_contact_as_erp(
                     :cshmeFlag, :phoneNo, :status, :createdAt, :lastModified
                 )
             """)
-
             connection.execute(
                 insert_query,
                 {
@@ -143,14 +162,14 @@ def register_contact_as_erp(
                 },
             )
 
-        logger.info(
-            "✅ ERP Contact synced: %s %s (Account=%s → ERP=%s, ContactID=%s, Phone=%s, Status=%s)",
-            first_name, last_name, account_id, customer_id, contact_person_id, phone_no, status
-        )
+            logger.info(
+                "✅ Registered new ERP contact: %s %s (Account=%s → ContactID=%s)",
+                first_name, last_name, account_id, contact_person_id
+            )
 
-        # 🔹 Log CloudEvent trigger condition (only when active + cshme_flag = True)
+        # 🔹 Log CloudEvent trigger condition (active + cshme_flag = True)
         if (
-            (cshme_flag is True or (previous_flag in [False, None] and cshme_flag is True))
+            (cshme_flag is True or (existing and previous_flag in [False, None] and cshme_flag is True))
             and str(status).lower() == "active"
         ):
             logger.info("🟢 Trigger S user ID creation via CloudEvent")
