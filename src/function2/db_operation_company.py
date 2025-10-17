@@ -12,16 +12,14 @@ logging.basicConfig(level=logging.INFO)
 
 def insert_or_update_company(companies: List[Dict[str, Any]]) -> Dict[str, int]:
     """
-    Insert or update companies into CRM_COMPANY_ACCOUNTS table.
-    If crmToErpFlag is True, register in ERP_CUSTOMERS and update erpNo.
+    Insert or update companies in CRM_COMPANY_ACCOUNTS.
+    - Always propagate all changes to ERP_CUSTOMERS via register_company_as_customer.
     """
-
     schema = os.getenv("HANA_SCHEMA")
     if not schema:
-        raise ValueError("Environment variable HANA_SCHEMA is not set.")
+        raise ValueError("HANA_SCHEMA is not set.")
 
     engine = get_hana_client()
-
     inserted_count = 0
     updated_count = 0
     failed = []
@@ -38,54 +36,43 @@ def insert_or_update_company(companies: List[Dict[str, Any]]) -> Dict[str, int]:
                 continue
 
             try:
-                # Check if company already exists
-                existing_query = text(
-                    f"SELECT crmToErpFlag, erpNo FROM {schema}.SPUSER_STAGING_CRM_COMPANY_ACCOUNTS "
-                    f"WHERE accountId = :accountId"
-                )
-                result = connection.execute(existing_query, {"accountId": account_id}).fetchone()
+                # Check existing CRM record
+                existing_query = text(f"""
+                    SELECT accountName, crmToErpFlag, erpNo 
+                    FROM {schema}.SPUSER_STAGING_CRM_COMPANY_ACCOUNTS
+                    WHERE accountId = :accountId
+                """)
+                existing = connection.execute(existing_query, {"accountId": account_id}).fetchone()
 
-                if result:
-                    existing_flag, existing_erp_no = result
-                    # Update company record
-                    update_query = text(f"""
-                        UPDATE {schema}.SPUSER_STAGING_CRM_COMPANY_ACCOUNTS
-                        SET accountName = :accountName,
-                            crmToErpFlag = :crmToErpFlag
-                        WHERE accountId = :accountId
-                    """)
-                    connection.execute(
-                        update_query,
-                        {
-                            "accountName": account_name,
-                            "crmToErpFlag": crm_to_erp_flag,
-                            "accountId": account_id,
-                        },
-                    )
-                    updated_count += 1
+                if existing:
+                    existing_name, existing_flag, existing_erp_no = existing
 
-                    # If flag is true and erpNo is missing, register in ERP_CUSTOMERS
-                    if crm_to_erp_flag and not existing_erp_no:
-                        customer_id = register_company_as_customer(account_id, account_name)
-                        update_erp_query = text(f"""
+                    # Update CRM record if any changes
+                    if existing_name != account_name or existing_flag != crm_to_erp_flag:
+                        update_query = text(f"""
                             UPDATE {schema}.SPUSER_STAGING_CRM_COMPANY_ACCOUNTS
-                            SET erpNo = :erpNo
+                            SET accountName = :accountName,
+                                crmToErpFlag = :crmToErpFlag
                             WHERE accountId = :accountId
                         """)
                         connection.execute(
-                            update_erp_query,
-                            {"erpNo": customer_id, "accountId": account_id},
+                            update_query,
+                            {
+                                "accountName": account_name,
+                                "crmToErpFlag": crm_to_erp_flag,
+                                "accountId": account_id,
+                            },
                         )
-
+                        updated_count += 1
+                    else:
+                        # No changes in CRM → still propagate to ERP if flag is True
+                        updated_count += 1
                 else:
-                    # Insert new company
+                    # Insert new CRM record
                     insert_query = text(f"""
                         INSERT INTO {schema}.SPUSER_STAGING_CRM_COMPANY_ACCOUNTS (
                             uuid, accountId, accountName, crmToErpFlag
-                        )
-                        VALUES (
-                            :uuid, :accountId, :accountName, :crmToErpFlag
-                        )
+                        ) VALUES (:uuid, :accountId, :accountName, :crmToErpFlag)
                     """)
                     connection.execute(
                         insert_query,
@@ -97,29 +84,28 @@ def insert_or_update_company(companies: List[Dict[str, Any]]) -> Dict[str, int]:
                         },
                     )
                     inserted_count += 1
+                    existing_erp_no = None  # For new insert, ERP needs registration
 
-                    # Register in ERP if crmToErpFlag is True
-                    if crm_to_erp_flag:
-                        customer_id = register_company_as_customer(account_id, account_name)
-                        update_erp_query = text(f"""
-                            UPDATE {schema}.SPUSER_STAGING_CRM_COMPANY_ACCOUNTS
-                            SET erpNo = :erpNo
-                            WHERE accountId = :accountId
-                        """)
-                        connection.execute(
-                            update_erp_query,
-                            {"erpNo": customer_id, "accountId": account_id},
-                        )
+                # ✅ Always register/update ERP if crmToErpFlag=True
+                if crm_to_erp_flag:
+                    customer_id = register_company_as_customer(account_id, account_name)
+                    # Update erpNo in CRM
+                    update_erp_query = text(f"""
+                        UPDATE {schema}.SPUSER_STAGING_CRM_COMPANY_ACCOUNTS
+                        SET erpNo = :erpNo
+                        WHERE accountId = :accountId
+                    """)
+                    connection.execute(
+                        update_erp_query,
+                        {"erpNo": customer_id, "accountId": account_id},
+                    )
 
             except Exception as e:
                 logger.exception("Error processing company %s: %s", account_id, e)
                 failed.append({"company": company, "error": str(e)})
 
-    logger.info(
-        "Summary: inserted=%d, updated=%d, failed=%d",
-        inserted_count, updated_count, len(failed)
-    )
-
+    logger.info("Company Summary: inserted=%d, updated=%d, failed=%d",
+                inserted_count, updated_count, len(failed))
     return {
         "inserted": inserted_count,
         "updated": updated_count,
