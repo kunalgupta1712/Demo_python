@@ -10,17 +10,17 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 
-def register_company_as_customer(account_id: int, account_name: str):
+def register_company_as_customer(account_id: int, account_name: str, status: str):
     """
     Register or update a CRM company as an ERP customer.
 
     - Generates customerId only for new records.
-    - Inserts into ERP_CUSTOMERS table if new.
+    - Inserts into ERP_CUSTOMERS if new.
     - Updates existing records with incoming data.
-    - Returns the newly created or existing customerId.
+    - Includes 'status' field for both insert and update.
     - Adds created and lastModified timestamps:
-        * created → set when the record is first inserted and never changes.
-        * lastModified → updated each time the record is inserted or modified.
+        * created → set when first inserted, never changes.
+        * lastModified → updated each insert/update.
     """
     schema = os.getenv("HANA_SCHEMA")
     if not schema:
@@ -39,11 +39,12 @@ def register_company_as_customer(account_id: int, account_name: str):
         existing = connection.execute(existing_query, {"account_id": account_id}).fetchone()
 
         if existing:
-            # 🔄 Update existing record with incoming data
+            # 🔄 Update existing record
             existing_customer_id, created = existing
             update_query = text(f"""
                 UPDATE {schema}.SPUSER_STAGING_ERP_CUSTOMERS
                 SET name = :name,
+                    status = :status,
                     lastModified = :lastModified
                 WHERE crmBpNo = :crmBpNo
             """)
@@ -51,13 +52,14 @@ def register_company_as_customer(account_id: int, account_name: str):
                 update_query,
                 {
                     "name": account_name,
+                    "status": status,
                     "lastModified": now_utc,
                     "crmBpNo": account_id,
                 },
             )
             logger.info(
-                "🔁 Updated ERP customer (accountId=%s, customerId=%s, lastModified=%s)",
-                account_id, existing_customer_id, now_utc
+                "🔁 Updated ERP customer (accountId=%s, customerId=%s, status=%s, lastModified=%s)",
+                account_id, existing_customer_id, status, now_utc
             )
             return existing_customer_id
 
@@ -73,8 +75,8 @@ def register_company_as_customer(account_id: int, account_name: str):
 
         insert_query = text(f"""
             INSERT INTO {schema}.SPUSER_STAGING_ERP_CUSTOMERS
-            (uuid, customerId, name, crmBpNo, created, lastModified)
-            VALUES (:uuid, :customerId, :name, :crmBpNo, :created, :lastModified)
+            (uuid, customerId, name, crmBpNo, status, created, lastModified)
+            VALUES (:uuid, :customerId, :name, :crmBpNo, :status, :created, :lastModified)
         """)
         connection.execute(
             insert_query,
@@ -83,13 +85,14 @@ def register_company_as_customer(account_id: int, account_name: str):
                 "customerId": customer_id,
                 "name": account_name,
                 "crmBpNo": account_id,
+                "status": status,
                 "created": now_utc,
                 "lastModified": now_utc,
             },
         )
         logger.info(
-            "✅ Registered new ERP customer (accountId=%s → customerId=%s, created=%s)",
-            account_id, customer_id, now_utc
+            "✅ Registered new ERP customer (accountId=%s → customerId=%s, status=%s, created=%s)",
+            account_id, customer_id, status, now_utc
         )
 
     return customer_id
