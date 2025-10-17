@@ -14,6 +14,21 @@
       "phoneNo": "8882719739",
       "status": "active" 
     },
+     {
+      "contactId": 102,
+      "accountId": 10,
+      "accountName": "NextGen Technologies Pvt Ltd",
+      "crmToErpFlag": true,
+      "firstName": "Samantha",
+      "lastName": "Fox",
+      "cshmeFlag": true,
+      "email": "samantha.fox@nextgen.com",
+      "department": "Engineering",
+      "country": "US",
+      "zipCode": "122810",
+      "phoneNo": "9982719739",
+      "status": "active" 
+    },   
     {
       "contactId": 201,
       "accountId": 20,
