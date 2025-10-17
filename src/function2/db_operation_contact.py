@@ -12,13 +12,12 @@ logging.basicConfig(level=logging.INFO)
 
 def insert_or_update_contact(contacts: List[Dict[str, Any]]) -> Dict[str, int]:
     """
-    Insert or update contacts in SPUSER_STAGING_CRM_COMPANY_CONTACTS table.
-    If crmToErpFlag=True, register contact in ERP_CUSTOMERS_CONTACTS and update erpContactPerson.
+    Insert or update contacts in CRM_COMPANY_CONTACTS.
+    - Always propagate all changes to ERP_CUSTOMERS_CONTACTS via register_contact_as_erp.
     """
-
     schema = os.getenv("HANA_SCHEMA")
     if not schema:
-        raise ValueError("HANA_SCHEMA environment variable is not set.")
+        raise ValueError("HANA_SCHEMA is not set.")
 
     engine = get_hana_client()
     inserted_count = 0
@@ -37,159 +36,98 @@ def insert_or_update_contact(contacts: List[Dict[str, Any]]) -> Dict[str, int]:
                 continue
 
             try:
-                # Check existing contact
+                # Check existing CRM contact
                 existing_query = text(f"""
-                    SELECT crmToErpFlag, erpContactPerson 
+                    SELECT accountName, firstName, lastName, email, crmToErpFlag, erpContactPerson
                     FROM {schema}.SPUSER_STAGING_CRM_COMPANY_CONTACTS
                     WHERE contactId = :contactId
                 """)
-                result = connection.execute(existing_query, {"contactId": contact_id}).fetchone()
+                existing = connection.execute(existing_query, {"contactId": contact_id}).fetchone()
 
-                if result:
-                    existing_flag, existing_erp_contact = result
-                    # Update existing record
-                    update_query = text(f"""
-                        UPDATE {schema}.SPUSER_STAGING_CRM_COMPANY_CONTACTS
-                        SET accountName = :accountName,
-                            crmToErpFlag = :crmToErpFlag,
-                            firstName = :firstName,
-                            lastName = :lastName,
-                            email = :email,
-                            department = :department,
-                            country = :country,
-                            cshmeFlag = :cshmeFlag,
-                            zipCode = :zipCode,
-                            phoneNo = :phoneNo,
-                            status = :status
-                        WHERE contactId = :contactId
-                    """)
-                    connection.execute(
-                        update_query,
-                        {
-                            "accountName": contact.get("accountName"),
-                            "crmToErpFlag": crm_to_erp_flag,
-                            "firstName": contact.get("firstName"),
-                            "lastName": contact.get("lastName"),
-                            "email": contact.get("email"),
-                            "department": contact.get("department"),
-                            "country": contact.get("country"),
-                            "cshmeFlag": contact.get("cshmeFlag"),
-                            "zipCode": contact.get("zipCode"),
-                            "phoneNo": contact.get("phoneNo"),
-                            "status": contact.get("status"),
-                            "contactId": contact_id,
-                        }
+                if existing:
+                    existing_values = existing._mapping
+                    update_needed = any(
+                        existing_values.get(field) != contact.get(field)
+                        for field in ["accountName", "firstName", "lastName", "email", "crmToErpFlag"]
                     )
-                    updated_count += 1
 
-                    # Register in ERP if required
-                    if crm_to_erp_flag and not existing_erp_contact:
-                        contact_person_id = register_contact_as_erp(
-                            account_id,
-                            contact.get("firstName"),
-                            contact.get("lastName"),
-                            contact.get("email"),
-                            department=contact.get("department"),
-                            country=contact.get("country"),
-                            cshme_flag=contact.get("cshmeFlag"),
-                            phone_no=contact.get("phoneNo"),
-                            status=contact.get("status"),
+                    if update_needed:
+                        update_query = text(f"""
+                            UPDATE {schema}.SPUSER_STAGING_CRM_COMPANY_CONTACTS
+                            SET accountName = :accountName,
+                                firstName = :firstName,
+                                lastName = :lastName,
+                                email = :email,
+                                department = :department,
+                                country = :country,
+                                cshmeFlag = :cshmeFlag,
+                                zipCode = :zipCode,
+                                phoneNo = :phoneNo,
+                                status = :status,
+                                crmToErpFlag = :crmToErpFlag
+                            WHERE contactId = :contactId
+                        """)
+                        connection.execute(
+                            update_query,
+                            {**contact, "contactId": contact_id},
                         )
-
-                        if contact_person_id:
-                            update_erp_contact = text(f"""
-                                UPDATE {schema}.SPUSER_STAGING_CRM_COMPANY_CONTACTS
-                                SET erpContactPerson = :erpContactPerson
-                                WHERE contactId = :contactId
-                            """)
-                            connection.execute(
-                                update_erp_contact,
-                                {
-                                    "erpContactPerson": contact_person_id,
-                                    "contactId": contact_id,
-                                }
-                            )
-                            logger.info(
-                                "Updated erpContactPerson=%s for contactId=%s",
-                                contact_person_id, contact_id
-                            )
-
+                    updated_count += 1
                 else:
-                    # Insert new contact
+                    # Insert new CRM contact
                     insert_query = text(f"""
                         INSERT INTO {schema}.SPUSER_STAGING_CRM_COMPANY_CONTACTS (
                             uuid, contactId, accountId, accountName, crmToErpFlag,
-                            firstName, lastName, email, department, country, 
+                            firstName, lastName, email, department, country,
                             cshmeFlag, zipCode, phoneNo, status
                         )
                         VALUES (
                             :uuid, :contactId, :accountId, :accountName, :crmToErpFlag,
-                            :firstName, :lastName, :email, :department, :country, 
+                            :firstName, :lastName, :email, :department, :country,
                             :cshmeFlag, :zipCode, :phoneNo, :status
                         )
                     """)
                     connection.execute(
                         insert_query,
-                        {
-                            "uuid": str(uuid.uuid4()),
-                            "contactId": contact_id,
-                            "accountId": account_id,
-                            "accountName": contact.get("accountName"),
-                            "crmToErpFlag": crm_to_erp_flag,
-                            "firstName": contact.get("firstName"),
-                            "lastName": contact.get("lastName"),
-                            "email": contact.get("email"),
-                            "department": contact.get("department"),
-                            "country": contact.get("country"),
-                            "cshmeFlag": contact.get("cshmeFlag"),
-                            "zipCode": contact.get("zipCode"),
-                            "phoneNo": contact.get("phoneNo"),
-                            "status": contact.get("status"),
-                        }
+                        {**contact, "uuid": str(uuid.uuid4())},
                     )
                     inserted_count += 1
 
-                    # Register and update erpContactPerson
-                    if crm_to_erp_flag:
-                        contact_person_id = register_contact_as_erp(
-                            account_id,
-                            contact.get("firstName"),
-                            contact.get("lastName"),
-                            contact.get("email"),
-                            department=contact.get("department"),
-                            country=contact.get("country"),
-                            cshme_flag=contact.get("cshmeFlag"),
-                            phone_no=contact.get("phoneNo"),
-                            status=contact.get("status"),
-                        )
+                # ✅ Always register/update ERP if crmToErpFlag=True
+                if crm_to_erp_flag:
+                    contact_person_id = register_contact_as_erp(
+                        account_id,
+                        contact.get("firstName"),
+                        contact.get("lastName"),
+                        contact.get("email"),
+                        department=contact.get("department"),
+                        country=contact.get("country"),
+                        cshme_flag=contact.get("cshmeFlag"),
+                        phone_no=contact.get("phoneNo"),
+                        status=contact.get("status"),
+                        contact_id=contact_id
+                    )
 
-                        if contact_person_id:
-                            update_erp_contact = text(f"""
-                                UPDATE {schema}.SPUSER_STAGING_CRM_COMPANY_CONTACTS
-                                SET erpContactPerson = :erpContactPerson
-                                WHERE contactId = :contactId
-                            """)
-                            connection.execute(
-                                update_erp_contact,
-                                {
-                                    "erpContactPerson": contact_person_id,
-                                    "contactId": contact_id,
-                                }
-                            )
-                            logger.info(
-                                "Updated erpContactPerson=%s for contactId=%s",
-                                contact_person_id, contact_id
-                            )
+                    # Update erpContactPerson in CRM
+                    if contact_person_id:
+                        update_erp_contact = text(f"""
+                            UPDATE {schema}.SPUSER_STAGING_CRM_COMPANY_CONTACTS
+                            SET erpContactPerson = :erpContactPerson
+                            WHERE contactId = :contactId
+                        """)
+                        connection.execute(
+                            update_erp_contact,
+                            {
+                                "erpContactPerson": contact_person_id,
+                                "contactId": contact_id,
+                            }
+                        )
 
             except Exception as e:
                 logger.exception("Error processing contact %s: %s", contact_id, e)
                 failed.append({"contact": contact, "error": str(e)})
 
-    logger.info(
-        "Contact Summary: inserted=%d, updated=%d, failed=%d",
-        inserted_count, updated_count, len(failed)
-    )
-
+    logger.info("Contact Summary: inserted=%d, updated=%d, failed=%d",
+                inserted_count, updated_count, len(failed))
     return {
         "inserted": inserted_count,
         "updated": updated_count,
