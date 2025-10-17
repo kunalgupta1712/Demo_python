@@ -10,7 +10,9 @@
       "email": "ravi.kumar@nextgen.com",
       "department": "Engineering",
       "country": "India",
-      "zipCode": "122018"
+      "zipCode": "122018",
+      "phoneNo": "8882719739",
+      "status": "active" 
     },
     {
       "contactId": 201,
@@ -23,6 +25,8 @@
       "email": "sophie.turner@bluewave.com",
       "department": "Marketing",
       "country": "UK",
-      "zipCode": "SW1A1AA"
+      "zipCode": "SW1A1AA",
+      "phoneNo": "8882719739", 
+      "status": "active"   
     }
   ]
