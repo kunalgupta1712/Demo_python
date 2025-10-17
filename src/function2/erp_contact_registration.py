@@ -3,7 +3,7 @@ import uuid
 import logging
 from sqlalchemy import text
 from db_connection import get_hana_client
-from id_generation import generate_sequential_id  # 👈 Import the sequential generator
+from id_generation import generate_sequential_id
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -26,6 +26,7 @@ def register_contact_as_erp(
     - Finds the corresponding customerId from ERP_CUSTOMERS via crmBpNo = accountId
     - Generates sequential contactPersonId within defined range
     - Inserts into ERP_CUSTOMERS_CONTACTS
+    - Logs if cshme_flag is True or changed from False to True
     - Returns the contactPersonId
     """
 
@@ -33,11 +34,9 @@ def register_contact_as_erp(
     if not schema:
         raise ValueError("Environment variable HANA_SCHEMA is not set.")
 
-    # 🔹 Get start/end range from env vars with fallback defaults
     start = int(os.getenv("ERP_CONTACTPERSONID_START", 2000000))
     end = int(os.getenv("ERP_CONTACTPERSONID_END", 2999999))
 
-    # 🔹 Generate sequential unique contactPersonId using helper service
     contact_person_id = generate_sequential_id(
         id_type="contactPersonId",
         start_range=start,
@@ -47,7 +46,7 @@ def register_contact_as_erp(
     engine = get_hana_client()
 
     with engine.begin() as connection:
-        # 🔹 Find corresponding ERP customerId for this CRM account
+        # 🔹 Find ERP Customer ID for given CRM Account
         query = text(f"""
             SELECT customerId 
             FROM {schema}.SPUSER_STAGING_ERP_CUSTOMERS
@@ -64,7 +63,17 @@ def register_contact_as_erp(
 
         customer_id = result[0]
 
-        # 🔹 Insert ERP customer contact record
+        # 🔹 Check if contact already exists (for flag comparison)
+        existing_query = text(f"""
+            SELECT cshmeFlag 
+            FROM {schema}.SPUSER_STAGING_ERP_CUSTOMERS_CONTACTS
+            WHERE crmBpNo = :account_id AND email = :email
+        """)
+        existing = connection.execute(existing_query, {"account_id": account_id, "email": email}).fetchone()
+
+        previous_flag = existing[0] if existing else None
+
+        # 🔹 Insert new ERP customer contact
         insert_query = text(f"""
             INSERT INTO {schema}.SPUSER_STAGING_ERP_CUSTOMERS_CONTACTS (
                 uuid, contactPersonId, customerId, crmBpNo,
@@ -100,5 +109,9 @@ def register_contact_as_erp(
             "✅ Registered ERP Contact: %s %s (Account=%s → ERP=%s, ContactID=%s)",
             first_name, last_name, account_id, customer_id, contact_person_id
         )
+
+        # 🔹 Log CloudEvent trigger condition
+        if cshme_flag is True or (previous_flag in [False, None] and cshme_flag is True):
+            logger.info("🟢 Trigger S user ID creation via CloudEvent")
 
     return contact_person_id
