@@ -60,6 +60,7 @@ entity CRM_COMPANY_ACCOUNTS {
       accountName     : String(255);
       erpNo           : String(255);
       crmToErpFlag    : Boolean;
+      status          : StatusEnum;
       contacts        : Composition of many CRM_COMPANY_CONTACTS on contacts.accountId = $self.accountId;
       erpCustomer     : Association to ERP_CUSTOMERS on erpCustomer.crmBpNo = $self.accountId;
 }
@@ -93,6 +94,7 @@ entity ERP_CUSTOMERS {
       customerId      : String(255);
       name            : String(255);
       crmBpNo         : Integer not null;
+      status          : StatusEnum;
       crmCompany      : Association to CRM_COMPANY_ACCOUNTS on crmCompany.accountId = $self.crmBpNo;
       contacts        : Composition of many ERP_CUSTOMERS_CONTACTS on contacts.customerId = $self.customerId;
       created         : Timestamp;
