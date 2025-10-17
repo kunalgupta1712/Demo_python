@@ -12,16 +12,16 @@ logging.basicConfig(level=logging.INFO)
 
 def register_company_as_customer(account_id: int, account_name: str):
     """
-    Register a CRM company (account) as an ERP customer.
+    Register or update a CRM company as an ERP customer.
 
+    - Generates customerId only for new records.
     - Inserts into ERP_CUSTOMERS table if new.
-    - Updates lastModified if record already exists.
+    - Updates existing records with incoming data.
     - Returns the newly created or existing customerId.
     - Adds created and lastModified timestamps:
         * created → set when the record is first inserted and never changes.
         * lastModified → updated each time the record is inserted or modified.
     """
-
     schema = os.getenv("HANA_SCHEMA")
     if not schema:
         raise ValueError("Environment variable HANA_SCHEMA is not set.")
@@ -30,46 +30,38 @@ def register_company_as_customer(account_id: int, account_name: str):
     now_utc = datetime.utcnow()
 
     with engine.begin() as connection:
-        # 🔹 Check if the CRM account already exists in ERP_CUSTOMERS
+        # 🔹 Check if the CRM account already exists
         existing_query = text(f"""
-            SELECT customerId, created, name
+            SELECT customerId, created
             FROM {schema}.SPUSER_STAGING_ERP_CUSTOMERS
             WHERE crmBpNo = :account_id
         """)
         existing = connection.execute(existing_query, {"account_id": account_id}).fetchone()
 
         if existing:
-            # 🔁 Record exists → update lastModified only if there is a change
-            existing_customer_id, created, existing_name = existing
-
-            if existing_name != account_name:
-                update_query = text(f"""
-                    UPDATE {schema}.SPUSER_STAGING_ERP_CUSTOMERS
-                    SET name = :name,
-                        lastModified = :lastModified
-                    WHERE crmBpNo = :crmBpNo
-                """)
-                connection.execute(
-                    update_query,
-                    {
-                        "name": account_name,
-                        "lastModified": now_utc,
-                        "crmBpNo": account_id,
-                    },
-                )
-                logger.info(
-                    "🔁 Updated ERP customer (accountId=%s, customerId=%s, lastModified=%s)",
-                    account_id, existing_customer_id, now_utc
-                )
-            else:
-                logger.info(
-                    "ℹ️ No change detected for ERP customer (accountId=%s, customerId=%s)",
-                    account_id, existing_customer_id
-                )
-
+            # 🔄 Update existing record with incoming data
+            existing_customer_id, created = existing
+            update_query = text(f"""
+                UPDATE {schema}.SPUSER_STAGING_ERP_CUSTOMERS
+                SET name = :name,
+                    lastModified = :lastModified
+                WHERE crmBpNo = :crmBpNo
+            """)
+            connection.execute(
+                update_query,
+                {
+                    "name": account_name,
+                    "lastModified": now_utc,
+                    "crmBpNo": account_id,
+                },
+            )
+            logger.info(
+                "🔁 Updated ERP customer (accountId=%s, customerId=%s, lastModified=%s)",
+                account_id, existing_customer_id, now_utc
+            )
             return existing_customer_id
 
-        # 🆕 Insert new ERP customer record → generate ID only now
+        # 🆕 Insert new ERP customer record → generate customerId now
         start = int(os.getenv("ERP_CUSTOMERID_START", 1000000))
         end = int(os.getenv("ERP_CUSTOMERID_END", 9999999))
 
@@ -95,7 +87,6 @@ def register_company_as_customer(account_id: int, account_name: str):
                 "lastModified": now_utc,
             },
         )
-
         logger.info(
             "✅ Registered new ERP customer (accountId=%s → customerId=%s, created=%s)",
             account_id, customer_id, now_utc
