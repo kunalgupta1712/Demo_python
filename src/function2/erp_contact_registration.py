@@ -26,7 +26,7 @@ def register_contact_as_erp(
     - Finds the corresponding customerId from ERP_CUSTOMERS via crmBpNo = accountId
     - Generates sequential contactPersonId within defined range
     - Inserts into ERP_CUSTOMERS_CONTACTS
-    - Logs if cshme_flag is True or changed from False to True
+    - Logs if cshme_flag is True (or changed from False/None to True) AND status='active'
     - Returns the contactPersonId
     """
 
@@ -34,9 +34,11 @@ def register_contact_as_erp(
     if not schema:
         raise ValueError("Environment variable HANA_SCHEMA is not set.")
 
+    # 🔹 Get number range from environment variables (with fallback)
     start = int(os.getenv("ERP_CONTACTPERSONID_START", 2000000))
     end = int(os.getenv("ERP_CONTACTPERSONID_END", 2999999))
 
+    # 🔹 Generate sequential unique contactPersonId
     contact_person_id = generate_sequential_id(
         id_type="contactPersonId",
         start_range=start,
@@ -63,7 +65,7 @@ def register_contact_as_erp(
 
         customer_id = result[0]
 
-        # 🔹 Check if contact already exists (for flag comparison)
+        # 🔹 Check if contact already exists (for cshme_flag change detection)
         existing_query = text(f"""
             SELECT cshmeFlag 
             FROM {schema}.SPUSER_STAGING_ERP_CUSTOMERS_CONTACTS
@@ -73,7 +75,7 @@ def register_contact_as_erp(
 
         previous_flag = existing[0] if existing else None
 
-        # 🔹 Insert new ERP customer contact
+        # 🔹 Insert new ERP customer contact record
         insert_query = text(f"""
             INSERT INTO {schema}.SPUSER_STAGING_ERP_CUSTOMERS_CONTACTS (
                 uuid, contactPersonId, customerId, crmBpNo,
@@ -106,12 +108,15 @@ def register_contact_as_erp(
         )
 
         logger.info(
-            "✅ Registered ERP Contact: %s %s (Account=%s → ERP=%s, ContactID=%s)",
-            first_name, last_name, account_id, customer_id, contact_person_id
+            "✅ Registered ERP Contact: %s %s (Account=%s → ERP=%s, ContactID=%s, Phone=%s, Status=%s)",
+            first_name, last_name, account_id, customer_id, contact_person_id, phone_no, status
         )
 
         # 🔹 Log CloudEvent trigger condition
-        if cshme_flag is True or (previous_flag in [False, None] and cshme_flag is True):
+        if (
+            (cshme_flag is True or (previous_flag in [False, None] and cshme_flag is True))
+            and str(status).lower() == "active"
+        ):
             logger.info("🟢 Trigger S user ID creation via CloudEvent")
 
     return contact_person_id
