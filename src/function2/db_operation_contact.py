@@ -4,7 +4,7 @@ import logging
 from typing import List, Dict, Any
 from sqlalchemy import text
 from db_connection import get_hana_client
-from erp_contact_registration import register_contact_as_erp
+from erp_contactPerson_registration import register_contact_as_erp
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
