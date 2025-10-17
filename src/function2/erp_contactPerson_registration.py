@@ -150,8 +150,11 @@ def register_contact_as_erp(
                 first_name, last_name, account_id, contact_person_id
             )
 
-        # Log CloudEvent trigger condition (active + cshme_flag = True)
-        if cshme_flag and str(status).lower() == "active":
-            logger.info("🟢 Trigger S user ID creation via CloudEvent")
+        # Log CloudEvent trigger condition 
+            logger.info(
+                "🟢 Send all users to main id store "
+                "and the logic there will check whether "
+                "a S user should be created, disabled, or enabled. based on cshmeFlag and status"
+            )
 
     return contact_person_id
