@@ -81,6 +81,8 @@ entity CRM_COMPANY_CONTACTS {
       department      : String(255);
       country         : String(255);
       zipCode         : String(12);
+      phoneNo         : String(16);
+      status          : StatusEnum;
       company         : Association to CRM_COMPANY_ACCOUNTS on company.accountId = $self.accountId;
       erpContact      : Association to ERP_CUSTOMERS_CONTACTS on erpContact.contactPersonId = $self.erpContactPerson;
 }
@@ -93,6 +95,8 @@ entity ERP_CUSTOMERS {
       crmBpNo         : Integer not null;
       crmCompany      : Association to CRM_COMPANY_ACCOUNTS on crmCompany.accountId = $self.crmBpNo;
       contacts        : Composition of many ERP_CUSTOMERS_CONTACTS on contacts.customerId = $self.customerId;
+      created         : Timestamp;
+      lastModified    : Timestamp;
 }
  
  
@@ -113,8 +117,10 @@ entity ERP_CUSTOMERS_CONTACTS {
       cshmeFlag       : Boolean;
       phoneNo         : String(16);
       status          : StatusEnum;
+      customer        : Association to ERP_CUSTOMERS on customer.customerId = $self.customerId;
 
       @cds.nullable: true
       createdAt       : Timestamp;
-      customer        : Association to ERP_CUSTOMERS on customer.customerId = $self.customerId;
+      lastModified    : Timestamp;
+      
 }
