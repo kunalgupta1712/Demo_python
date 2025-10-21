@@ -14,3 +14,5 @@
 
 3.1. If crmToErpFlag = True, then chsmeFlag can be either True or False.
 3.2. If crmToErpFlag = False, then chsmeFlag must also be False, because a True chsmeFlag has no meaning when the Account is not being created or maintained in ERP as Customer.
+
+4. Here, the assumption is that the JSON data passed as input should either include all data sets in the case of an initial load, or only the changed records in the case of a delta load.
